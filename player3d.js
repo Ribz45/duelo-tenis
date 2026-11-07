@@ -297,10 +297,14 @@ export class Athlete {
   setVisible(v) { this.root.visible = v; }
 }
 
+// sex/tone/hairStyle/beard: usados pelos modelos humanos (athlete-gltf.js); o resto também pelo boneco simples
 export const LOOK_PRESETS = [
-  { skin:0xe2b48f, shirt:0xf4f4f4, shorts:0x1e3a8a, hair:0x3b2a1e, cap:0xd7f34a, band:0xd7f34a, racket:0x1d4ed8, capStyle:'cap' },
-  { skin:0xc68a5e, shirt:0xe23d3d, shorts:0x1f1f1f, hair:0x1a1a1a, cap:0xffffff, band:0xffffff, racket:0xe11d48, capStyle:'band' },
-  { skin:0xf1c9a5, shirt:0x0f766e, shorts:0xffffff, hair:0xc9a66b, cap:0x0f766e, band:0x0f766e, racket:0xf59e0b, capStyle:'band' },
-  { skin:0x8d5a3b, shirt:0xf97316, shorts:0x0f172a, hair:0x111111, cap:0x0f172a, band:0xf97316, racket:0x22c55e, capStyle:'cap' },
-  { skin:0xe8c09a, shirt:0x7c3aed, shorts:0x111827, hair:0x5b3a1e, cap:0xffffff, band:0xffffff, racket:0x7c3aed, capStyle:'band' },
+  { skin:0xe2b48f, shirt:0xf4f4f4, shorts:0x1e3a8a, hair:0x3b2a1e, cap:0xd7f34a, band:0xd7f34a, racket:0x1d4ed8, capStyle:'cap', sex:'m', tone:'light', hairStyle:'Hair_SimpleParted' },
+  { skin:0xc68a5e, shirt:0xe23d3d, shorts:0x1f1f1f, hair:0x1a1a1a, cap:0xffffff, band:0xffffff, racket:0xe11d48, capStyle:'band', sex:'f', tone:'dark', hairStyle:'Hair_Buns' },
+  { skin:0xf1c9a5, shirt:0x0f766e, shorts:0xffffff, hair:0xc9a66b, cap:0x0f766e, band:0x0f766e, racket:0xf59e0b, capStyle:'band', sex:'m', tone:'light', hairStyle:'Hair_Buzzed' },
+  { skin:0x8d5a3b, shirt:0xf97316, shorts:0x0f172a, hair:0x111111, cap:0x0f172a, band:0xf97316, racket:0x22c55e, capStyle:'cap', sex:'m', tone:'dark', hairStyle:'Hair_SimpleParted' },
+  { skin:0xe8c09a, shirt:0x7c3aed, shorts:0x111827, hair:0x5b3a1e, cap:0xffffff, band:0xffffff, racket:0x7c3aed, capStyle:'band', sex:'m', tone:'light', hairStyle:'Hair_SimpleParted', beard:true },
 ];
+
+// partilhado com athlete-gltf.js
+export { TRACKS, sampleTrack, lerpPose, ik2, READY, WALK, HAPPY, SAD, SV_IDLE, strings, angDiff, clamp };

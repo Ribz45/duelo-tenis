@@ -1,8 +1,9 @@
 import * as THREE from './vendor/three.module.min.js';
-import { Athlete, LOOK_PRESETS, TRACK_END } from './player3d.js?v=4';
-import { FX } from './fx.js?v=4';
-import { sfx, unlock } from './audio.js?v=4';
-import { HL, HW, SVC, BR, serverFor, servePositions as rulePositions, judgeFirstBounce, isMatchOver, matchPointFor, outBy } from './rules.js?v=4';
+import { Athlete, LOOK_PRESETS, TRACK_END } from './player3d.js?v=5';
+import { FX } from './fx.js?v=5';
+import { RealAthlete, loadAthleteAssets } from './athlete-gltf.js?v=5';
+import { sfx, unlock } from './audio.js?v=5';
+import { HL, HW, SVC, BR, serverFor, servePositions as rulePositions, judgeFirstBounce, isMatchOver, matchPointFor, outBy } from './rules.js?v=5';
 
 // ---------------------------------------------------------------- constantes
 const DW = 5.485, NET_H = 0.914, GRAV = 9.81;
@@ -242,8 +243,14 @@ function newPlayer(idx) {
     incoming:null, incAt:-1, autoPlan:null, manualId:-1, ai:{ planId:-1, planAt:0, plan:null }, fig:null };
 }
 const P = [newPlayer(0), newPlayer(1)];
-P[0].fig = new Athlete(scene, LOOK_PRESETS[0]);
-P[1].fig = new Athlete(scene, LOOK_PRESETS[1]);
+P[0].fig = new Athlete(scene, LOOK_PRESETS[0]); P[0].lookIdx = 0;
+P[1].fig = new Athlete(scene, LOOK_PRESETS[1]); P[1].lookIdx = 1;
+// jogadores humanos (Quaternius): substituem os bonecos simples quando os ficheiros estiverem carregados
+let athleteAssets = null;
+loadAthleteAssets().then(A => {
+  athleteAssets = A;
+  for (const p of P) { scene.remove(p.fig.root); p.fig = new RealAthlete(scene, A, LOOK_PRESETS[p.lookIdx]); }
+}).catch(e => console.warn('Modelos 3D indisponíveis, a usar os jogadores simples', e));
 
 const M = { mode:'menu', me:0, level:1, surface:'hard', help:'normal', names:['Tu', 'CPU'], score:[0, 0], first:0, server:0,
   serveNum:1, phase:'idle', boxSign:-1, tourRound:0, pointsPlayed:0, wantRematch:false, remoteRematch:false,
@@ -949,7 +956,7 @@ function startMatch(cfg) {
   Object.assign(M, { mode:cfg.mode, me:cfg.me, names:cfg.names, surface:cfg.surface, level:cfg.level ?? M.level,
     first:cfg.first, score:[0, 0], pointsPlayed:0, wantRematch:false, remoteRematch:false, tips:{}, counts:{}, toss:null, lastMine:{} });
   buildCourt(M.surface);
-  P.forEach((p, i) => { p.isCPU = false; p.remote = false; p.target = null; p.swipe = null; p.act = null; p.ai.planId = -1; p.fig.setLook(LOOK_PRESETS[cfg.looks ? cfg.looks[i] : i]); });
+  P.forEach((p, i) => { p.isCPU = false; p.remote = false; p.target = null; p.swipe = null; p.act = null; p.ai.planId = -1; p.lookIdx = cfg.looks ? cfg.looks[i] : i; p.fig.setLook(LOOK_PRESETS[p.lookIdx]); });
   if (M.mode === 'cpu' || M.mode === 'tour') P[1].isCPU = true;
   if (M.mode === 'online') P[other(M.me)].remote = true;
   timers.length = 0;
@@ -1254,4 +1261,5 @@ if (inviteCode) show('joinScr'); else goMenu();
 // ganchos para testes
 window.__dt = { M, B, P, startMatch, NET, advance, predictBall, touch, aimFromDrag, commitShot, startToss, releaseServe, serveTarget, onTap, camera, debugCam,
   freeze(on) { hitStopUntil = on ? Infinity : 0; }, renderer, perf,
+  simulate(sec) { for (let t = 0; t < sec; t += STEP) step(STEP); },
   get simTime() { return simTime; } };

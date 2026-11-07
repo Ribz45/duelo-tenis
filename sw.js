@@ -1,10 +1,15 @@
 // Service worker: guarda o jogo no telemóvel para abrir sem internet.
 // Ao publicar uma versão nova, sobe VERSION (e o ?v= dos módulos) para os telemóveis a descarregarem.
-const VERSION = 'duelo-v4';
+const VERSION = 'duelo-v5';
 const FILES = [
   './', 'index.html', 'manifest.webmanifest',
-  'game.js?v=4', 'player3d.js?v=4', 'fx.js?v=4', 'audio.js?v=4', 'rules.js?v=4',
+  'game.js?v=5', 'player3d.js?v=5', 'fx.js?v=5', 'audio.js?v=5', 'rules.js?v=5',
+  'athlete-gltf.js?v=5',
   'vendor/three.module.min.js', 'vendor/peerjs.min.js',
+  'vendor/jsm/loaders/GLTFLoader.js', 'vendor/jsm/utils/BufferGeometryUtils.js', 'vendor/jsm/utils/SkeletonUtils.js',
+  'models/char_male.glb', 'models/char_female.glb', 'models/anims.glb', 'models/fingers.json',
+  'models/tex/male_light.jpg', 'models/tex/male_dark.jpg', 'models/tex/female_light.jpg', 'models/tex/female_dark.jpg',
+  'models/tex/male_normal.jpg', 'models/tex/female_normal.jpg', 'models/tex/hair1.jpg', 'models/tex/hair2.jpg', 'models/tex/eyes.jpg',
   'vendor/fonts/barlow-condensed-latin-600-normal.woff2', 'vendor/fonts/barlow-condensed-latin-700-normal.woff2',
   'vendor/fonts/barlow-condensed-latin-800-normal.woff2', 'vendor/fonts/barlow-condensed-latin-800-italic.woff2',
   'vendor/fonts/barlow-latin-500-normal.woff2', 'vendor/fonts/barlow-latin-600-normal.woff2', 'vendor/fonts/barlow-latin-700-normal.woff2',

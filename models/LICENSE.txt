@@ -1,0 +1,5 @@
+Personagens, penteados e animações: Quaternius (https://quaternius.com)
+- Universal Base Characters (versão Standard)
+- Universal Animation Library (versão Standard)
+Licença CC0 1.0 Universal (domínio público): https://creativecommons.org/publicdomain/zero/1.0/
+Os ficheiros foram reduzidos para o jogo (só os clipes usados, texturas em JPEG mais pequenas).
