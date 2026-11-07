@@ -8,8 +8,8 @@ const HL = 11.885, HW = 4.115, DW = 5.485, SVC = 6.40, NET_H = 0.914, BR = 0.035
 const STEP = 1 / 120, PLANE = 0.45, POINTS_TO_WIN = 10, RUN_SPEED = 6.2, WALK_SPEED = 2.4;
 const TOSS_Y0 = 1.3, TOSS_V = 5.1, T_IDEAL = 0.56, T_FAIL = 1.05;   // contacto ideal a ≈2,6 m, onde a raquete chega
 const SURFACES = {
-  hard:  { label:'Piso rápido', court:0x2f68b0, outer:0x3d8a5e, e:0.68, f:0.80 },
-  clay:  { label:'Terra batida', court:0xc5653a, outer:0xb85a31, e:0.72, f:0.72 },
+  hard:  { label:'Piso rápido', court:0x2b64ad, outer:0x37805a, e:0.68, f:0.80 },
+  clay:  { label:'Terra batida', court:0xc0623a, outer:0xb3592f, e:0.72, f:0.72 },
   grass: { label:'Relva', court:0x5a9a3a, outer:0x4b8731, e:0.6, f:0.86 },
 };
 const LEVELS = [
@@ -44,47 +44,94 @@ const buzz = ms => { try { if (navigator.vibrate && navigator.userActivation?.ha
 
 // ---------------------------------------------------------------- cena 3D
 const canvas = $('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias:true });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, powerPreference:'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.08;
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x9ccbec);
-scene.fog = new THREE.Fog(0x9ccbec, 55, 110);
 const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 220);
-scene.add(new THREE.HemisphereLight(0xffffff, 0x4a5a3a, 1.2));
-const sun = new THREE.DirectionalLight(0xfff6e5, 2.0);
+scene.add(new THREE.HemisphereLight(0xe4f0ff, 0x3a4636, 1.05));
+const sun = new THREE.DirectionalLight(0xfff0d8, 2.7);
 sun.position.set(-9, 22, 7); sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-Object.assign(sun.shadow.camera, { left:-20, right:20, top:20, bottom:-20, near:1, far:70 });
-sun.shadow.bias = -0.0006;
+Object.assign(sun.shadow.camera, { left:-16, right:16, top:20, bottom:-20, near:1, far:60 });
+sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.02;
 scene.add(sun);
 
 function canvasTex(w, h, draw) {
   const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
 }
+// céu de dia em gradiente
+scene.background = canvasTex(4, 256, (g, w, h) => {
+  const gr = g.createLinearGradient(0, 0, 0, h);
+  gr.addColorStop(0, '#4f8fcb'); gr.addColorStop(0.55, '#8fbde3'); gr.addColorStop(1, '#d5e6f2');
+  g.fillStyle = gr; g.fillRect(0, 0, w, h);
+});
+scene.fog = new THREE.Fog(0xbcd5ea, 60, 120);
+
+// público: filas de cadeiras com espectadores, cores sóbrias, sombra da cobertura no topo
+const SHIRTS = ['#eef1f5', '#d4dce6', '#2c3e5c', '#5a7aa6', '#9fb7d4', '#d9c9a8', '#b3473f', '#e0b84a', '#3d6b4f', '#7a6a8f', '#f2f2f2', '#1f2a3d'];
+const SKINS = ['#f1c9a5', '#e0b48f', '#c68a5e', '#8d5a3b', '#f5d6bc'];
 const crowdCanvasTex = canvasTex(512, 256, (g, w, h) => {
-  g.fillStyle = '#1b2433'; g.fillRect(0, 0, w, h);
-  const cols = ['#e94f4f', '#f2c14e', '#4fa3e9', '#ffffff', '#7bd389', '#f28c38', '#b48ef0', '#2b2b2b', '#e8e8e8'];
-  for (let y = 8; y < h; y += 12) for (let x = 3; x < w; x += 9) {
-    if (Math.random() < 0.08) continue;
-    g.fillStyle = cols[(Math.random() * cols.length) | 0]; g.fillRect(x + rand(-1, 1), y, 7, 7);
-    g.fillStyle = ['#f1c9a5', '#c68a5e', '#8d5a3b', '#e0b48f'][(Math.random() * 4) | 0]; g.fillRect(x + 1.5, y - 4.5, 4, 4.5);
+  g.fillStyle = '#121d31'; g.fillRect(0, 0, w, h);
+  for (let row = 0; row < 19; row++) {
+    const y = 4 + row * 13.5;
+    g.fillStyle = row % 2 ? '#1c3051' : '#192b49'; g.fillRect(0, y + 7, w, 6);
+    for (let x = 1 + (row % 2) * 4; x < w; x += 9.5) {
+      if (Math.random() < 0.2) continue;
+      const cx = x + Math.random() * 1.5;
+      g.fillStyle = SHIRTS[(Math.random() * SHIRTS.length) | 0];
+      g.beginPath(); g.roundRect ? g.roundRect(cx, y + 4, 7.5, 9, 3) : g.rect(cx, y + 4, 7.5, 9); g.fill();
+      g.fillStyle = SKINS[(Math.random() * SKINS.length) | 0];
+      g.beginPath(); g.arc(cx + 3.75, y + 2, 2.6, 0, Math.PI * 2); g.fill();
+      if (Math.random() < 0.18) { g.fillStyle = Math.random() < 0.5 ? '#f4f4f4' : '#22324d'; g.fillRect(cx + 1, y - 1.2, 5.5, 1.8); }
+    }
   }
+  const gr = g.createLinearGradient(0, 0, 0, h * 0.4);
+  gr.addColorStop(0, 'rgba(4,10,22,.6)'); gr.addColorStop(1, 'rgba(4,10,22,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, w, h * 0.4);
 });
-const adTex = canvasTex(1024, 64, (g, w, h) => {
-  g.fillStyle = '#0f3d6e'; g.fillRect(0, 0, w, h); g.fillStyle = '#d7f34a';
-  g.font = 'bold 38px system-ui, sans-serif'; g.textBaseline = 'middle';
-  for (let x = 16; x < w; x += 512) { g.fillText('DUELO TÉNIS', x, h / 2 + 2); g.fillStyle = '#ffffff'; g.fillText('· JOGA COM AMIGOS', x + 238, h / 2 + 2); g.fillStyle = '#d7f34a'; }
-});
-adTex.wrapS = THREE.RepeatWrapping;
+function adCanvas() {
+  return canvasTex(1024, 64, (g, w, h) => {
+    g.fillStyle = '#0b1f3a'; g.fillRect(0, 0, w, h);
+    const items = [['DUELO TÉNIS', '#d7f34a'], ['TIE-BREAK A 10', '#ffffff'], ['JOGA COM AMIGOS', '#ffffff'], ['SERVIÇO · RESPOSTA · PONTO', '#9fc2ea']];
+    g.font = "800 34px 'Barlow Condensed', 'Arial Narrow', sans-serif"; g.textBaseline = 'middle';
+    let x = 18;
+    for (let k = 0; x < w; k++) {
+      const [t, c] = items[k % items.length];
+      g.fillStyle = c; g.fillText(t, x, h / 2 + 2); x += g.measureText(t).width + 26;
+      g.fillStyle = 'rgba(255,255,255,.18)'; g.fillRect(x - 14, 14, 2, h - 28); x += 12;
+    }
+  });
+}
+let adTex = adCanvas();
 const netTex = canvasTex(128, 64, (g, w, h) => {
-  g.strokeStyle = 'rgba(25,25,25,.9)'; g.lineWidth = 1.4;
+  g.strokeStyle = 'rgba(20,20,22,.88)'; g.lineWidth = 1.3;
   for (let x = 0; x <= w; x += 6) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
   for (let y = 0; y <= h; y += 6) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); }
 });
 netTex.wrapS = netTex.wrapT = THREE.RepeatWrapping; netTex.repeat.set(10, 1);
+// grão do piso (cinzento à volta de 1, multiplica a cor do piso)
+function grainTex(kind) {
+  const t = canvasTex(256, 256, (g, w, h) => {
+    const img = g.createImageData(w, h), d = img.data, amp = kind === 'clay' ? 14 : kind === 'grass' ? 16 : 8;
+    for (let i = 0; i < d.length; i += 4) { const v = 236 + (Math.random() * 2 - 1) * amp; d[i] = d[i + 1] = d[i + 2] = v; d[i + 3] = 255; }
+    g.putImageData(img, 0, 0);
+    if (kind === 'clay') for (let i = 0; i < 70; i++) { g.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,255,.07)' : 'rgba(0,0,0,.06)'; g.fillRect(0, Math.random() * h, w, 1 + Math.random() * 2); }
+    if (kind === 'grass') for (let i = 0; i < 900; i++) { g.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.08)'; g.fillRect(Math.random() * w, Math.random() * h, 1, 3 + Math.random() * 4); }
+  });
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; return t;
+}
+// desgaste junto à linha de fundo (onde os jogadores pisam mais)
+const wearTex = canvasTex(256, 256, (g, w, h) => {
+  const gr = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.55, 'rgba(255,255,255,.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, w, h);
+});
+const WEAR = { hard:[0x6f9bd4, 0.22], clay:[0xe7a479, 0.4], grass:[0xa8935e, 0.62] };
 
 const lam = c => new THREE.MeshLambertMaterial({ color:c });
 let courtGroup = null, courtKey = null;
@@ -94,13 +141,17 @@ function buildCourt(key) {
   courtKey = key;
   const S = SURFACES[key], g = new THREE.Group();
   const flat = (w, d, mat, x, y, z) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat); m.rotation.x = -Math.PI / 2; m.position.set(x, y, z); m.receiveShadow = true; g.add(m); return m; };
-  flat(60, 80, lam(S.outer), 0, 0, 0);
-  flat(DW * 2 + 0.1, HL * 2 + 0.1, lam(S.court), 0, 0.001, 0);
+  const grain = grainTex(key), outerGrain = grain.clone();
+  outerGrain.repeat.set(20, 26); outerGrain.needsUpdate = true; grain.repeat.set(4, 8);
+  flat(60, 80, new THREE.MeshLambertMaterial({ color:S.outer, map:outerGrain }), 0, 0, 0);
+  flat(DW * 2 + 0.1, HL * 2 + 0.1, new THREE.MeshLambertMaterial({ color:S.court, map:grain }), 0, 0.001, 0);
   if (key === 'grass') {
-    const light = lam(0x67a846);
+    const light = new THREE.MeshLambertMaterial({ color:0x6aad48, map:grain, transparent:true, opacity:0.55 });
     for (let i = 0; i < 16; i++) if (i % 2) flat(DW * 2 + 6, 2.6, light, 0, 0.0015, -20.8 + i * 2.6);
   }
-  const lm = new THREE.MeshBasicMaterial({ color:0xf7f7f2 });
+  const wm = new THREE.MeshLambertMaterial({ color:WEAR[key][0], map:wearTex, transparent:true, opacity:WEAR[key][1], depthWrite:false });
+  for (const sz of [-1, 1]) { flat(5.2, 3.4, wm, 0, 0.0018, sz * (HL - 0.2)); flat(2.4, 1.6, wm, 0, 0.0019, sz * (HL + 1.4)); }
+  const lm = new THREE.MeshBasicMaterial({ color:0xf3f3ee });
   const line = (x1, z1, x2, z2, w = 0.05) => {
     const vert = x1 === x2, len = vert ? Math.abs(z2 - z1) : Math.abs(x2 - x1);
     const m = new THREE.Mesh(new THREE.PlaneGeometry(vert ? w : len + w, vert ? len + w : w), lm);
@@ -110,21 +161,44 @@ function buildCourt(key) {
   line(-DW, -HL, -DW, HL); line(DW, -HL, DW, HL); line(-HW, -HL, -HW, HL); line(HW, -HL, HW, HL);
   line(-HW, -SVC, HW, -SVC); line(-HW, SVC, HW, SVC); line(0, -SVC, 0, SVC);
   line(0, -HL, 0, -HL + 0.18); line(0, HL, 0, HL - 0.18);
-  const NW = DW + 0.914;
-  const post = new THREE.CylinderGeometry(0.05, 0.05, 1.07, 10), pm = lam(0x1f4d2e);
-  for (const sx of [-1, 1]) { const p = new THREE.Mesh(post, pm); p.position.set(sx * NW, 0.535, 0); p.castShadow = true; g.add(p); }
+  // rede: postes, malha, fita e cinta central
+  const NW = DW + 0.914, dark = lam(0x173a2a);
+  for (const sx of [-1, 1]) {
+    const p = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.055, 1.07, 12), dark); p.position.set(sx * NW, 0.535, 0); p.castShadow = true; g.add(p);
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), dark); cap.position.set(sx * NW, 1.07, 0); g.add(cap);
+  }
   const net = new THREE.Mesh(new THREE.PlaneGeometry(NW * 2, NET_H, 60, 8), new THREE.MeshBasicMaterial({ map:netTex, transparent:true, side:THREE.DoubleSide, depthWrite:false }));
   net.position.set(0, NET_H / 2, 0); g.add(net); fx.setNet(net);
-  const band = new THREE.Mesh(new THREE.BoxGeometry(NW * 2, 0.07, 0.03), new THREE.MeshLambertMaterial({ color:0xffffff }));
+  const white = new THREE.MeshLambertMaterial({ color:0xf7f7f7 });
+  const band = new THREE.Mesh(new THREE.BoxGeometry(NW * 2, 0.07, 0.03), white);
   band.position.set(0, NET_H - 0.035, 0); band.castShadow = true; g.add(band);
+  const strap = new THREE.Mesh(new THREE.BoxGeometry(0.05, NET_H, 0.025), white); strap.position.set(0, NET_H / 2, 0); g.add(strap);
+  // cadeira do árbitro (lado direito) e bancos dos jogadores (lado esquerdo)
+  const ump = new THREE.Group(), frame = lam(0x1d4433), navy = lam(0x14284a), skin = lam(0xe0b48f);
+  for (const lx of [-0.3, 0.3]) for (const lz of [-0.3, 0.3]) { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.9, 0.06), frame); leg.position.set(lx, 0.95, lz); leg.castShadow = true; ump.add(leg); }
+  const plat = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.08, 0.85), frame); plat.position.y = 1.9; plat.castShadow = true; ump.add(plat);
+  const back = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.7, 0.7), frame); back.position.set(0.36, 2.3, 0); ump.add(back);
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.55, 0.42), navy); torso.position.set(0.12, 2.25, 0); torso.castShadow = true; ump.add(torso);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 10), skin); head.position.set(0.1, 2.66, 0); ump.add(head);
+  const thighs = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.14, 0.36), lam(0x2b2f38)); thighs.position.set(-0.08, 2.0, 0); ump.add(thighs);
+  ump.position.set(NW + 1.0, 0, 0); g.add(ump);
+  for (const bz of [-2.2, 2.2]) {
+    const bench = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.45, 1.6), navy); bench.position.set(-(NW + 1.6), 0.225, bz); bench.castShadow = true; g.add(bench);
+    const towel = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.04, 0.32), white); towel.position.set(-(NW + 1.55), 0.47, bz + 0.4); g.add(towel);
+    const bottle = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.22, 8), lam(0xd7f34a)); bottle.position.set(-(NW + 1.5), 0.56, bz - 0.4); g.add(bottle);
+  }
+  // bancadas, placards e cobertura
   const crowdMat = w => { const t = crowdCanvasTex.clone(); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(w / 9, 2.2); t.needsUpdate = true; return new THREE.MeshLambertMaterial({ map:t }); };
-  const adMat = w => { const t = adTex.clone(); t.wrapS = THREE.RepeatWrapping; t.repeat.set(w / 16, 1); t.needsUpdate = true; return new THREE.MeshBasicMaterial({ map:t }); };
+  const adMat = w => { const t = adTex.clone(); t.wrapS = THREE.RepeatWrapping; t.repeat.set(w / 16, 1); t.needsUpdate = true; return new THREE.MeshBasicMaterial({ map:t, toneMapped:false }); };
+  const roofMat = lam(0x0b1a30);
   const stand = (width, rotY, dist, wallDist) => {
     const sg = new THREE.Group();
     const pl = new THREE.Mesh(new THREE.PlaneGeometry(width, 12), crowdMat(width));
     pl.rotation.x = -0.62; pl.position.set(0, 5.4, -dist); sg.add(pl);
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(width, 0.6, 4), roofMat); roof.position.set(0, 10.6, -dist - 4.2); sg.add(roof);
     const wall = new THREE.Mesh(new THREE.BoxGeometry(width, 1.0, 0.2), adMat(width));
     wall.position.set(0, 0.5, -wallDist); sg.add(wall);
+    const apron = new THREE.Mesh(new THREE.BoxGeometry(width, 0.9, 0.2), lam(0x0e2340)); apron.position.set(0, 0.45, -dist + 4.2); sg.add(apron);
     sg.rotation.y = rotY; g.add(sg);
   };
   stand(46, 0, HL + 13, HL + 6.2);
@@ -133,6 +207,8 @@ function buildCourt(key) {
   stand(60, -Math.PI / 2, DW + 8, DW + 4.2);
   scene.add(g); courtGroup = g;
 }
+// os placards usam a fonte condensada: redesenha quando a fonte carregar
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { adTex = adCanvas(); const k = courtKey; courtKey = null; if (k) buildCourt(k); });
 
 // bola, sombra, rasto, marcadores, mira e trajetória
 const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(0.06, 16, 12), new THREE.MeshStandardMaterial({ color:0xd9f53c, emissive:0x3a4a00, roughness:0.6 }));
@@ -739,11 +815,12 @@ function hideAim() { prevLine.visible = false; }
 
 // ---------------------------------------------------------------- HUD
 let toastTimer = null;
+// faixa de resultado estilo TV (entra pela esquerda)
 function toast(text, cls = 'info', sub = '', ms = 900) {
   const el = $('toast');
-  el.className = cls; el.innerHTML = ''; el.append(text);
-  if (sub) { const sm = document.createElement('small'); sm.textContent = sub; el.append(sm); }
-  requestAnimationFrame(() => el.classList.add('show'));
+  el.className = cls + (sub ? '' : ' nosub');
+  el.querySelector('.b-title').textContent = text; el.querySelector('.b-sub').textContent = sub;
+  void el.offsetWidth; el.classList.add('show');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), ms);
 }
 let coachTimer = null;
@@ -758,9 +835,13 @@ function countTip(key, n, text) {
 }
 function updateHUD() {
   for (const i of [0, 1]) {
-    const row = $(i === M.me ? 'row0' : 'row1');
+    const row = $(i === M.me ? 'row0' : 'row1'), pt = row.querySelector('.pt');
     row.querySelector('.nm').textContent = M.names[i];
-    row.querySelector('.pt').textContent = M.score[i];
+    if (pt.textContent !== String(M.score[i])) {
+      const changed = pt.textContent !== '' && M.score[i] > 0;
+      pt.textContent = M.score[i];
+      if (changed) { pt.classList.remove('bump'); void pt.offsetWidth; pt.classList.add('bump'); }
+    }
     row.querySelector('.dot').classList.toggle('on', M.phase !== 'over' && M.server === i);
   }
 }
@@ -831,11 +912,13 @@ function updateShotUI() {
 }
 const screens = ['menu', 'hostScr', 'joinScr', 'tourScr', 'endScr', 'msgScr'];
 function show(id) {
-  for (const s of screens) $(s).classList.toggle('hidden', s !== id);
+  for (const s of screens) $(s).classList.toggle('off', s !== id);
   const game = id === null;
-  $('hud').classList.toggle('hidden', !game); $('quit').classList.toggle('hidden', !game);
-  if (!game) { $('hint').classList.add('hidden'); $('shotUI').classList.add('hidden'); $('coach').classList.remove('show'); }
+  $('hud').classList.toggle('fade-out', !game); $('quit').classList.toggle('hidden', !game);
+  if (!game) { $('hint').classList.add('hidden'); $('shotUI').classList.add('hidden'); $('coach').classList.remove('show'); $('toast').classList.remove('show'); }
 }
+const icon = (id, cls = 'i') => `<svg class="${cls}"><use href="#i-${id}"/></svg>`;
+document.addEventListener('contextmenu', e => { if (!e.target.closest('input')) e.preventDefault(); });
 function myName() { const n = ($('nameIn').value || $('joinName').value || '').trim(); return n || 'Jogador'; }
 function saveName(n) { store.set('name', n); $('nameIn').value = n; $('joinName').value = n; }
 
@@ -857,9 +940,9 @@ function startMatch(cfg) {
 function finishMatch() {
   M.phase = 'over'; updateHUD();
   const w = M.score[0] > M.score[1] ? 0 : 1, won = w === M.me;
-  $('endScore').textContent = M.score[M.me] + ' – ' + M.score[other(M.me)];
-  $('endIcon').textContent = won ? '🏆' : '🎾';
-  $('endTitle').textContent = won ? 'Ganhaste!' : 'Perdeste…';
+  $('endScore').innerHTML = M.score[M.me] + '<em>–</em>' + M.score[other(M.me)];
+  $('endIcon').innerHTML = icon(won ? 'trophy' : 'ball');
+  $('endTitle').textContent = won ? 'Ganhaste' : 'Perdeste';
   let sub = 'contra ' + M.names[other(M.me)], main = 'Revanche';
   if (M.mode === 'tour') {
     if (won && M.tourRound === TOUR.length - 1) { sub = 'Campeão do Torneio Atlântico!'; store.set('trophies', store.get('trophies', 0) + 1); main = 'Novo torneio'; M.tourRound = 0; }
@@ -875,7 +958,7 @@ function goMenu() {
   netClose();
   M.phase = 'idle'; B.live = false; B.held = false; M.toss = null; timers.length = 0;
   if (location.hash) history.replaceState(null, '', location.pathname + location.search);
-  $('trophies').textContent = '🏆 Troféus: ' + store.get('trophies', 0);
+  $('trophies').innerHTML = icon('trophy') + 'Troféus: ' + store.get('trophies', 0);
   show('menu');
 }
 function seg(id, key, val) {
@@ -909,7 +992,7 @@ function renderBracket() {
   TOUR.forEach((r, i) => {
     const li = document.createElement('li');
     li.className = i < M.tourRound ? 'done' : i === M.tourRound ? 'cur' : '';
-    li.innerHTML = `<span><b>${r.round}</b><br><small>${r.opp} · ${SURFACES[r.surface].label}</small></span><span class="st">${i < M.tourRound ? 'Ganho ✓' : i === M.tourRound ? 'Próximo' : ''}</span>`;
+    li.innerHTML = `<span><b>${r.round}</b><br><small>${r.opp} · ${SURFACES[r.surface].label}</small></span>${i < M.tourRound ? '<span class="pill ok">Ganho</span>' : i === M.tourRound ? '<span class="pill next">Próximo</span>' : ''}`;
     $('bracket').append(li);
   });
   $('bTourPlay').textContent = 'Jogar ' + TOUR[M.tourRound].round;
@@ -961,7 +1044,7 @@ function hostGame() {
   peer.on('open', () => {
     const url = location.origin + location.pathname + '#d=' + NET.code;
     NET.url = url; $('linkBox').textContent = url;
-    $('bWa').href = 'https://wa.me/?text=' + encodeURIComponent('Desafio-te para um duelo de ténis! 🎾 ' + url);
+    $('bWa').href = 'https://wa.me/?text=' + encodeURIComponent('Desafio-te para um duelo de ténis: ' + url);
   });
   peer.on('connection', c => { if (NET.conn) { c.close(); return; } $('hostStatus').textContent = 'Amigo a entrar…'; wire(c); });
   peer.on('error', e => {
@@ -1013,12 +1096,13 @@ function onNet(m) {
 }
 $('bFriend').addEventListener('click', () => { audio(); saveName(myName()); hostGame(); });
 $('bCopy').addEventListener('click', async () => {
-  try { await navigator.clipboard.writeText(NET.url || ''); $('bCopy').textContent = 'Copiado ✓'; } catch (e) { $('bCopy').textContent = 'Seleciona o link e copia'; }
-  setTimeout(() => ($('bCopy').textContent = 'Copiar link'), 1800);
+  const label = t => { $('bCopy').innerHTML = icon('copy') + t; };
+  try { await navigator.clipboard.writeText(NET.url || ''); label('Copiado'); } catch (e) { label('Seleciona e copia'); }
+  setTimeout(() => label('Copiar link'), 1800);
 });
 $('bShare').addEventListener('click', async () => {
   if (!NET.url) return;
-  if (navigator.share) { try { await navigator.share({ title:'Duelo Ténis', text:'Desafio-te para um duelo de ténis! 🎾', url:NET.url }); } catch (e) {} }
+  if (navigator.share) { try { await navigator.share({ title:'Duelo Ténis', text:'Desafio-te para um duelo de ténis.', url:NET.url }); } catch (e) {} }
   else $('bCopy').click();
 });
 $('bJoin').addEventListener('click', () => {
@@ -1100,4 +1184,5 @@ if (inviteCode) show('joinScr'); else goMenu();
 
 // ganchos para testes
 window.__dt = { M, B, P, startMatch, NET, advance, predictBall, touch, aimFromDrag, commitShot, startToss, releaseServe, serveTarget, onTap, camera, debugCam,
+  freeze(on) { hitStopUntil = on ? Infinity : 0; },
   get simTime() { return simTime; } };

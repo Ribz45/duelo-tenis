@@ -3,114 +3,177 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<meta name="theme-color" content="#0b1a2e">
+<meta name="theme-color" content="#07152b">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
+<meta name="format-detection" content="telephone=no">
 <title>Duelo Ténis</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,600;0,700;0,800;1,800&family=Barlow:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
-  :root { --bg:#0b1a2e; --panel:rgba(11,26,46,.92); --ball:#d7f34a; --txt:#f3f6fb; --muted:#9fb0c8; --red:#ff6b6b; --green:#7be08a; }
+  :root {
+    --navy-950:#050f20; --navy-900:#07152b; --navy-800:#0b1f3a; --navy-700:#13305a; --navy-600:#1c4277;
+    --ball:#d7f34a; --ink:#f4f7fb; --muted:#9bb0cc; --line:rgba(255,255,255,.1);
+    --good:#6ee08a; --bad:#ff6b6b; --warn:#f3b23c;
+    --cond:'Barlow Condensed','Arial Narrow',system-ui,sans-serif; --body:'Barlow',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --ease:cubic-bezier(.2,.8,.2,1); --r:12px;
+    --st:env(safe-area-inset-top,0px); --sb:env(safe-area-inset-bottom,0px); --sl:env(safe-area-inset-left,0px); --sr:env(safe-area-inset-right,0px);
+  }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-  html,body { margin:0; height:100%; overflow:hidden; background:var(--bg); color:var(--txt);
-    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; overscroll-behavior:none; touch-action:none;
-    user-select:none; -webkit-user-select:none; }
+  html,body { margin:0; height:100%; overflow:hidden; background:var(--navy-900); color:var(--ink); font-family:var(--body); font-weight:500;
+    overscroll-behavior:none; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; -webkit-text-size-adjust:100%; }
   #c { position:fixed; inset:0; width:100%; height:100%; display:block; touch-action:none; }
   .hidden { display:none !important; }
-  .screen { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
-    gap:12px; padding:24px 16px; background:linear-gradient(180deg,rgba(11,26,46,.55),rgba(11,26,46,.92) 45%); z-index:10; overflow-y:auto; }
-  .card { width:100%; max-width:380px; display:flex; flex-direction:column; gap:10px; }
-  .logo { font-size:40px; font-weight:900; letter-spacing:1px; text-align:center; line-height:1; margin-bottom:6px; }
-  .logo span { color:var(--ball); }
-  .sub { text-align:center; color:var(--muted); font-size:14px; margin:0 0 8px; }
-  h2 { margin:0 0 4px; text-align:center; font-size:24px; }
-  button, .btn { appearance:none; border:0; border-radius:14px; padding:15px 16px; font-size:17px; font-weight:700;
-    background:#1d3557; color:var(--txt); cursor:pointer; text-align:center; text-decoration:none; display:block; width:100%; }
-  button:active, .btn:active { transform:scale(.98); }
-  button.primary, .btn.primary { background:var(--ball); color:#13240a; }
-  button.ghost { background:transparent; color:var(--muted); font-weight:600; padding:10px; }
-  .seg { display:flex; gap:6px; background:#12253f; padding:4px; border-radius:12px; }
-  .seg button { padding:9px 4px; font-size:14px; border-radius:9px; background:transparent; color:var(--muted); }
-  .seg button.on { background:#2a4a75; color:var(--txt); }
-  .lbl { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:1px; margin:6px 2px -4px; }
-  input { width:100%; padding:14px; border-radius:12px; border:2px solid #24426b; background:#0f2240; color:var(--txt);
-    font-size:17px; outline:none; user-select:text; -webkit-user-select:text; }
+  svg.i { width:22px; height:22px; flex:none; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+
+  /* ecrãs com transição */
+  .screen { position:fixed; inset:0; z-index:10; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:calc(var(--st) + 24px) calc(var(--sr) + 16px) calc(var(--sb) + 24px) calc(var(--sl) + 16px);
+    background:rgba(5,15,32,.84); overflow-y:auto; -webkit-overflow-scrolling:touch; touch-action:pan-y;
+    opacity:1; transform:none; visibility:visible; transition:opacity .3s var(--ease), transform .3s var(--ease), visibility 0s; }
+  .screen.off { opacity:0; transform:translateY(14px); visibility:hidden; pointer-events:none;
+    transition:opacity .2s ease-in, transform .2s ease-in, visibility 0s .2s; }
+  .card { width:100%; max-width:400px; display:flex; flex-direction:column; gap:12px; margin:auto 0; }
+  .wordmark { font-family:var(--cond); font-weight:800; font-style:italic; text-transform:uppercase; line-height:.86; text-align:center;
+    font-size:64px; letter-spacing:.01em; margin:0 0 4px; }
+  .wordmark span { display:block; color:var(--ball); }
+  .tagline { text-align:center; color:var(--muted); font-size:15px; margin:0 0 8px; }
+  h2 { margin:0; text-align:center; font-family:var(--cond); font-weight:800; font-size:30px; text-transform:uppercase; letter-spacing:.02em; }
+  .muted { color:var(--muted); text-align:center; font-size:15px; margin:0; line-height:1.4; }
+
+  button, .btn { appearance:none; border:0; border-radius:var(--r); min-height:52px; padding:0 18px; font-family:var(--cond); font-weight:700;
+    font-size:21px; letter-spacing:.03em; text-transform:uppercase; background:var(--navy-700); color:var(--ink); cursor:pointer; text-decoration:none;
+    display:flex; align-items:center; justify-content:center; gap:10px; width:100%;
+    box-shadow:inset 0 -3px 0 rgba(0,0,0,.25); transition:transform .08s ease, background-color .15s ease, box-shadow .08s ease; }
+  button:active, .btn:active { transform:translateY(2px); box-shadow:inset 0 -1px 0 rgba(0,0,0,.25); background:var(--navy-600); }
+  button.primary, .btn.primary { background:var(--ball); color:var(--navy-900); box-shadow:inset 0 -3px 0 rgba(0,0,0,.18); }
+  button.primary:active, .btn.primary:active { background:#c6e23c; }
+  button.ghost { background:transparent; box-shadow:none; color:var(--muted); font-size:18px; min-height:44px; }
+  button:disabled { opacity:.55; }
+  .row2 { display:flex; gap:12px; } .row2 > * { flex:1; min-width:0; }
+
+  .panel { background:rgba(11,31,58,.92); border:1px solid var(--line); border-radius:var(--r); padding:12px; display:flex; flex-direction:column; gap:10px; }
+  .field-l { font-family:var(--cond); font-weight:700; font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); margin:0 2px -4px; }
+  .seg { display:flex; gap:4px; background:var(--navy-950); padding:4px; border-radius:10px; }
+  .seg button { min-height:44px; font-size:17px; border-radius:8px; background:transparent; color:var(--muted); box-shadow:none; padding:0 6px; }
+  .seg button.on { background:var(--navy-600); color:var(--ink); box-shadow:inset 0 -2px 0 var(--ball); }
+  input { width:100%; min-height:52px; padding:0 16px; border-radius:var(--r); border:2px solid var(--navy-600); background:var(--navy-950); color:var(--ink);
+    font-family:var(--body); font-weight:600; font-size:18px; outline:none; user-select:text; -webkit-user-select:text; }
   input:focus { border-color:var(--ball); }
-  .linkbox { background:#0f2240; border:2px dashed #2f5486; border-radius:12px; padding:12px; font-size:14px;
-    word-break:break-all; text-align:center; user-select:text; -webkit-user-select:text; }
-  .row2 { display:flex; gap:8px; } .row2 > * { flex:1; }
-  .muted { color:var(--muted); text-align:center; font-size:14px; margin:4px 0; }
-  .howto { background:#10223c; border-radius:12px; padding:10px 12px; font-size:13px; color:#c7d3e6; line-height:1.5; }
-  .howto b { color:var(--ball); }
-  #hud { position:fixed; left:0; right:0; top:0; z-index:5; pointer-events:none; padding:calc(env(safe-area-inset-top) + 8px) 10px 0; }
-  .sb { display:inline-flex; flex-direction:column; background:var(--panel); border-radius:12px; overflow:hidden;
-    box-shadow:0 4px 14px rgba(0,0,0,.35); min-width:190px; }
-  .sb .r { display:flex; align-items:center; gap:8px; padding:6px 10px; font-weight:700; font-size:15px; }
-  .sb .r + .r { border-top:1px solid rgba(255,255,255,.08); }
-  .sb .dot { width:9px; height:9px; border-radius:50%; background:transparent; flex:none; }
-  .sb .dot.on { background:var(--ball); box-shadow:0 0 6px var(--ball); }
-  .sb .nm { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:150px; }
-  .sb .pt { min-width:26px; text-align:right; font-variant-numeric:tabular-nums; font-size:18px; color:var(--ball); }
-  .tag { margin-top:6px; display:inline-block; background:var(--panel); border-radius:8px; padding:3px 8px; font-size:11px;
-    letter-spacing:1px; color:var(--muted); }
-  #quit { position:fixed; top:calc(env(safe-area-inset-top) + 8px); right:10px; z-index:6; width:40px; height:40px; padding:0;
-    border-radius:50%; background:var(--panel); font-size:18px; }
-  #toast { position:fixed; left:0; right:0; top:34%; text-align:center; z-index:6; pointer-events:none; font-size:34px;
-    font-weight:900; text-shadow:0 3px 12px rgba(0,0,0,.6); opacity:0; transition:opacity .25s, transform .25s; transform:scale(.9); }
-  #toast.show { opacity:1; transform:scale(1); }
-  #toast.good { color:var(--green); } #toast.bad { color:var(--red); } #toast.info { color:#fff; } #toast.gold { color:var(--ball); }
-  #toast small { display:block; font-size:16px; font-weight:700; color:#fff; opacity:.9; }
-  #hint { position:fixed; left:12px; right:12px; bottom:calc(env(safe-area-inset-bottom) + 14px); z-index:5; pointer-events:none;
-    text-align:center; font-size:14px; font-weight:600; color:#fff; text-shadow:0 2px 6px rgba(0,0,0,.8); }
-  #hint span { background:rgba(11,26,46,.7); padding:6px 12px; border-radius:20px; display:inline-block; }
+  .howto { display:flex; flex-direction:column; gap:8px; }
+  .howto div { display:flex; align-items:center; gap:12px; font-size:15px; color:#d5deeb; line-height:1.3; }
+  .howto b { color:var(--ink); font-weight:700; }
+  .howto svg.i { color:var(--ball); width:24px; height:24px; }
+  .foot { display:flex; align-items:center; justify-content:center; gap:8px; color:var(--muted); font-size:15px; }
+  .foot svg.i { width:18px; height:18px; color:var(--ball); }
+  .linkbox { background:var(--navy-950); border:2px dashed var(--navy-600); border-radius:var(--r); padding:14px; font-size:15px; text-align:center;
+    word-break:break-all; user-select:text; -webkit-user-select:text; }
   .bracket { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:8px; }
-  .bracket li { background:#10223c; border-radius:12px; padding:10px 12px; display:flex; justify-content:space-between; align-items:center; font-size:15px; }
-  .bracket li .st { font-size:13px; font-weight:700; }
-  .bracket li.done .st { color:var(--green); } .bracket li.cur { outline:2px solid var(--ball); } .bracket li.lost .st { color:var(--red); }
-  .big { font-size:46px; font-weight:900; text-align:center; margin:4px 0; color:var(--ball); font-variant-numeric:tabular-nums; }
-  .trophy { font-size:64px; text-align:center; line-height:1; }
-  /* painel da pancada: tempo, potência, qualidade */
-  #shotUI { position:fixed; left:10px; right:10px; bottom:calc(env(safe-area-inset-bottom) + 52px); z-index:5; pointer-events:none;
-    display:flex; flex-direction:column; gap:6px; max-width:420px; margin:0 auto; }
-  .meter { background:var(--panel); border-radius:10px; padding:5px 8px 6px; }
-  .meter .ml { display:flex; justify-content:space-between; font-size:11px; font-weight:700; letter-spacing:.5px; color:var(--muted); margin-bottom:4px; text-transform:uppercase; }
-  .bar { position:relative; height:12px; border-radius:6px; background:#203450; overflow:hidden; transition:opacity .2s; }
-  .bar.dim { opacity:.35; }
-  #tmY { position:absolute; top:0; bottom:0; background:#e0b23a; opacity:.55; }
-  #tmG { position:absolute; top:0; bottom:0; background:#3ddc84; }
-  #tmMark { position:absolute; top:-2px; bottom:-2px; width:4px; margin-left:-2px; background:#fff; border-radius:2px; box-shadow:0 0 6px #fff; }
-  #tmTick { position:absolute; top:-2px; bottom:-2px; width:4px; margin-left:-2px; background:var(--ball); border-radius:2px; transition:opacity .3s; }
-  #pwFill { height:100%; width:0; background:linear-gradient(90deg,#7be08a,#d7f34a 60%,#ff6b6b); border-radius:6px; }
-  #qFill { height:100%; width:0; border-radius:6px; transition:width .25s; }
-  #qFill.gold { background:var(--ball); } #qFill.good { background:var(--green); } #qFill.warn { background:#f0a83c; } #qFill.bad { background:var(--red); }
-  #shotInfo { text-align:center; font-size:14px; color:#fff; text-shadow:0 2px 6px rgba(0,0,0,.8); opacity:0; transition:opacity .3s; min-height:20px; }
-  #shotInfo.show { opacity:1; }
-  .chip { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; font-weight:800; color:#13240a; margin-left:4px; }
-  .chip.gold { background:var(--ball); } .chip.good { background:var(--green); } .chip.warn { background:#f0a83c; } .chip.bad { background:var(--red); color:#fff; }
-  #coach { position:fixed; left:12px; right:12px; top:calc(env(safe-area-inset-top) + 118px); z-index:6; pointer-events:none; display:flex; justify-content:center;
-    opacity:0; transform:translateY(-6px); transition:opacity .3s, transform .3s; }
+  .bracket li { background:var(--navy-800); border:1px solid var(--line); border-radius:var(--r); padding:12px 14px; display:flex; justify-content:space-between; align-items:center; gap:12px; }
+  .bracket li b { font-family:var(--cond); font-weight:700; font-size:20px; text-transform:uppercase; letter-spacing:.02em; }
+  .bracket li small { color:var(--muted); font-size:14px; }
+  .bracket li.cur { border-color:var(--ball); }
+  .pill { font-family:var(--cond); font-weight:700; font-size:13px; letter-spacing:.08em; text-transform:uppercase; padding:4px 8px; border-radius:6px; white-space:nowrap; }
+  .pill.ok { background:rgba(110,224,138,.16); color:var(--good); } .pill.next { background:var(--ball); color:var(--navy-900); }
+  .result-icon { display:flex; justify-content:center; color:var(--ball); }
+  .result-icon svg.i { width:64px; height:64px; stroke-width:1.6; }
+  .bigscore { font-family:var(--cond); font-weight:800; font-size:76px; line-height:1; text-align:center; font-variant-numeric:tabular-nums; }
+  .bigscore em { font-style:normal; color:var(--muted); margin:0 10px; }
+
+  /* marcador estilo TV */
+  #hud { position:fixed; top:calc(var(--st) + 10px); left:calc(var(--sl) + 10px); z-index:5; pointer-events:none; transition:opacity .3s var(--ease); }
+  .sb { display:grid; grid-template-columns:auto; border-radius:8px; overflow:hidden; box-shadow:0 6px 18px rgba(0,0,0,.35); min-width:196px; }
+  .sb .r { display:flex; align-items:center; height:34px; background:rgba(7,21,43,.94); font-family:var(--cond); font-weight:700; font-size:18px; text-transform:uppercase; letter-spacing:.03em; }
+  .sb .r + .r { border-top:1px solid var(--line); }
+  .sb .dot { width:16px; display:flex; justify-content:center; }
+  .sb .dot::after { content:''; width:8px; height:8px; border-radius:50%; background:var(--ball); opacity:0; transform:scale(.4); transition:opacity .25s, transform .25s var(--ease); }
+  .sb .dot.on::after { opacity:1; transform:scale(1); }
+  .sb .nm { flex:1; padding-right:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:150px; }
+  .sb .pt { width:40px; height:100%; display:flex; align-items:center; justify-content:center; background:var(--navy-600); font-size:22px; font-weight:800; font-variant-numeric:tabular-nums; }
+  .sb .pt.bump { animation:bump .5s var(--ease); }
+  @keyframes bump { 0% { background:var(--ball); color:var(--navy-900); transform:scaleY(.6); } 40% { transform:scaleY(1.08); } 100% { background:var(--navy-600); color:var(--ink); transform:none; } }
+  .tag { display:inline-block; margin-top:6px; background:var(--ball); color:var(--navy-900); border-radius:4px; padding:3px 8px;
+    font-family:var(--cond); font-weight:700; font-size:12px; letter-spacing:.1em; text-transform:uppercase; }
+  #quit { position:fixed; top:calc(var(--st) + 10px); right:calc(var(--sr) + 10px); z-index:6; width:44px; height:44px; min-height:44px; padding:0; border-radius:50%;
+    background:rgba(7,21,43,.9); box-shadow:none; }
+  #quit svg.i { width:20px; height:20px; }
+
+  /* faixa de resultado do ponto (estilo TV) */
+  #toast { position:fixed; left:0; top:38%; z-index:6; pointer-events:none; display:flex; flex-direction:column; gap:2px;
+    padding:10px 22px 10px calc(var(--sl) + 18px); background:rgba(7,21,43,.95); border-left:6px solid var(--ink); border-radius:0 10px 10px 0;
+    box-shadow:0 8px 24px rgba(0,0,0,.35); transform:translateX(-105%); transition:transform .32s var(--ease); max-width:86%; }
+  #toast.show { transform:none; }
+  #toast .b-title { font-family:var(--cond); font-weight:800; font-style:italic; font-size:38px; line-height:1; text-transform:uppercase; letter-spacing:.01em; }
+  #toast .b-sub { font-size:15px; color:#d5deeb; font-weight:600; }
+  #toast.nosub .b-sub { display:none; }
+  #toast.good { border-left-color:var(--good); } #toast.good .b-title { color:var(--good); }
+  #toast.bad { border-left-color:var(--bad); } #toast.bad .b-title { color:var(--bad); }
+  #toast.gold { border-left-color:var(--ball); } #toast.gold .b-title { color:var(--ball); }
+
+  #coach { position:fixed; left:calc(var(--sl) + 10px); right:calc(var(--sr) + 10px); top:calc(var(--st) + 122px); z-index:6; pointer-events:none; display:flex; justify-content:center;
+    opacity:0; transform:translateY(-8px); transition:opacity .3s var(--ease), transform .3s var(--ease); }
   #coach.show { opacity:1; transform:none; }
-  #coach span { max-width:420px; background:rgba(15,61,110,.94); border-left:4px solid var(--ball); padding:8px 12px; border-radius:10px;
-    font-size:13.5px; line-height:1.4; box-shadow:0 4px 14px rgba(0,0,0,.35); }
-  #coach span::before { content:'🧢 Treinador: '; font-weight:800; color:var(--ball); }
-  .meter .ml .mid { color:#dfe7f2; }
+  #coach span { max-width:420px; background:rgba(7,21,43,.95); border:1px solid var(--line); padding:10px 12px; border-radius:10px; font-size:14.5px; line-height:1.4; box-shadow:0 6px 18px rgba(0,0,0,.3); }
+  #coach span::before { content:'Treinador'; display:inline-block; margin-right:8px; padding:2px 6px; border-radius:4px; background:var(--ball); color:var(--navy-900);
+    font-family:var(--cond); font-weight:700; font-size:12px; letter-spacing:.08em; text-transform:uppercase; vertical-align:1px; }
+
   #pops { position:fixed; inset:0; pointer-events:none; z-index:6; overflow:hidden; }
-  .pop { position:absolute; left:0; top:0; font-weight:900; font-size:17px; letter-spacing:.5px; text-transform:uppercase;
-    white-space:nowrap; text-shadow:0 2px 0 rgba(0,0,0,.45), 0 0 10px rgba(0,0,0,.35); will-change:transform,opacity; }
-  .pop.gold { color:var(--ball); font-size:20px; } .pop.good { color:var(--green); } .pop.warn { color:#f0a83c; }
-  .pop.bad { color:var(--red); } .pop.info { color:#fff; font-size:14px; }
+  .pop { position:absolute; left:0; top:0; font-family:var(--cond); font-weight:800; font-style:italic; font-size:22px; letter-spacing:.02em; text-transform:uppercase;
+    white-space:nowrap; text-shadow:0 2px 0 rgba(0,0,0,.5), 0 0 12px rgba(0,0,0,.35); will-change:transform,opacity; }
+  .pop.gold { color:var(--ball); font-size:26px; } .pop.good { color:var(--good); } .pop.warn { color:var(--warn); } .pop.bad { color:var(--bad); }
+  .pop.info { color:#fff; font-size:17px; font-style:normal; }
+
+  /* painel da pancada */
+  #shotUI { position:fixed; left:calc(var(--sl) + 10px); right:calc(var(--sr) + 10px); bottom:calc(var(--sb) + 54px); z-index:5; pointer-events:none;
+    display:flex; flex-direction:column; gap:6px; max-width:440px; margin:0 auto; transition:opacity .3s var(--ease); }
+  .meter { background:rgba(7,21,43,.9); border-radius:10px; padding:6px 10px 8px; }
+  .meter .ml { display:flex; justify-content:space-between; font-family:var(--cond); font-weight:700; font-size:13px; letter-spacing:.1em; color:var(--muted); margin-bottom:5px; text-transform:uppercase; }
+  .meter .ml .mid { color:var(--ink); }
+  .bar { position:relative; height:12px; border-radius:6px; background:#1a2d4b; overflow:hidden; transition:opacity .2s; }
+  .bar.dim { opacity:.35; }
+  #tmY { position:absolute; top:0; bottom:0; background:var(--warn); opacity:.5; }
+  #tmG { position:absolute; top:0; bottom:0; background:#3ddc84; }
+  #tmMark { position:absolute; top:-2px; bottom:-2px; width:4px; margin-left:-2px; background:#fff; border-radius:2px; box-shadow:0 0 8px #fff; }
+  #tmTick { position:absolute; top:-2px; bottom:-2px; width:4px; margin-left:-2px; background:var(--ball); border-radius:2px; transition:opacity .3s; }
+  #pwFill { height:100%; width:0; background:linear-gradient(90deg,var(--good),var(--ball) 60%,var(--bad)); border-radius:6px; }
+  #qFill { height:100%; width:0; border-radius:6px; transition:width .25s var(--ease); }
+  #qFill.gold { background:var(--ball); } #qFill.good { background:var(--good); } #qFill.warn { background:var(--warn); } #qFill.bad { background:var(--bad); }
+  #shotInfo { text-align:center; font-size:15px; font-weight:600; color:#fff; text-shadow:0 2px 6px rgba(0,0,0,.8); opacity:0; transition:opacity .3s; min-height:22px; }
+  #shotInfo.show { opacity:1; }
+  #shotInfo b { font-family:var(--cond); font-weight:700; font-size:18px; letter-spacing:.03em; text-transform:uppercase; }
+  .chip { display:inline-block; padding:1px 8px; border-radius:6px; font-family:var(--cond); font-size:14px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--navy-900); margin-left:6px; vertical-align:1px; }
+  .chip.gold { background:var(--ball); } .chip.good { background:var(--good); } .chip.warn { background:var(--warn); } .chip.bad { background:var(--bad); color:#fff; }
+  #hint { position:fixed; left:calc(var(--sl) + 12px); right:calc(var(--sr) + 12px); bottom:calc(var(--sb) + 12px); z-index:5; pointer-events:none; text-align:center; transition:opacity .3s; }
+  #hint span { background:rgba(7,21,43,.82); padding:8px 14px; border-radius:20px; display:inline-block; font-size:14.5px; font-weight:600; }
+  .fade-out { opacity:0 !important; }
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-ball" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6c3.3 3.3 3.3 9.5 0 12.8M18.4 5.6c-3.3 3.3-3.3 9.5 0 12.8"/></symbol>
+  <symbol id="i-vs" viewBox="0 0 24 24"><ellipse cx="8" cy="7.5" rx="4" ry="5" transform="rotate(-35 8 7.5)"/><path d="M10.6 11.4 17 20"/><ellipse cx="16" cy="7.5" rx="4" ry="5" transform="rotate(35 16 7.5)"/><path d="M13.4 11.4 7 20"/></symbol>
+  <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 4h8v5a4 4 0 0 1-8 0V4z"/><path d="M8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8.5 20h7M10 17h4"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M10 10h4v4h-4zM9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-tap" viewBox="0 0 24 24"><circle cx="12" cy="10" r="3"/><circle cx="12" cy="10" r="7" opacity=".45"/><path d="M12 17v4"/></symbol>
+  <symbol id="i-drag" viewBox="0 0 24 24"><circle cx="7" cy="17" r="2.5"/><path d="M9 15l8-8M12 7h5v5"/></symbol>
+  <symbol id="i-release" viewBox="0 0 24 24"><rect x="3" y="9" width="18" height="6" rx="3"/><path d="M11 9v6M13 9v6" stroke-width="3"/></symbol>
+  <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 15V4M8 8l4-4 4 4M5 13v6h14v-6"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 18l1.5-4A7.5 7.5 0 1 1 9 18.6L4 18z"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></symbol>
+</svg>
 <canvas id="c"></canvas>
 
-<div id="hud" class="hidden">
+<div id="hud" class="fade-out">
   <div class="sb">
-    <div class="r" id="row1"><span class="dot"></span><span class="nm"></span><span class="pt"></span></div>
-    <div class="r" id="row0"><span class="dot"></span><span class="nm"></span><span class="pt"></span></div>
-  </div><br>
-  <span class="tag" id="tag">TIE BREAK · 10 PONTOS</span>
+    <div class="r" id="row1"><span class="dot"></span><span class="nm"></span><span class="pt">0</span></div>
+    <div class="r" id="row0"><span class="dot"></span><span class="nm"></span><span class="pt">0</span></div>
+  </div>
+  <span class="tag" id="tag">Tie-break · 10 pontos</span>
 </div>
-<button id="quit" class="hidden" aria-label="Sair">✕</button>
-<div id="toast"></div>
+<button id="quit" class="hidden" aria-label="Sair do jogo"><svg class="i"><use href="#i-x"/></svg></button>
+<div id="toast"><div class="b-title"></div><div class="b-sub"></div></div>
 <div id="coach"><span></span></div>
 <div id="pops"></div>
 <div id="shotUI" class="hidden">
@@ -120,7 +183,7 @@
     <div class="bar" id="tmBar"><div id="tmY"></div><div id="tmG"></div><div id="tmTick"></div><div id="tmMark"></div></div>
   </div>
   <div class="meter">
-    <div class="ml"><span id="pwLbl">Potência</span><span>qualidade</span></div>
+    <div class="ml"><span id="pwLbl">Potência</span><span>Qualidade</span></div>
     <div class="row2" style="gap:6px"><div class="bar" style="flex:2"><div id="pwFill"></div></div><div class="bar" style="flex:1"><div id="qFill"></div></div></div>
   </div>
 </div>
@@ -129,53 +192,64 @@
 <!-- Menu -->
 <div id="menu" class="screen">
   <div class="card">
-    <div class="logo">DUELO<br><span>TÉNIS</span></div>
-    <p class="sub">Ténis 3D a sério, desafia os teus amigos</p>
-    <input id="nameIn" maxlength="12" placeholder="O teu nome" autocomplete="off">
-    <button id="bFriend" class="primary">⚔️ Desafiar um amigo</button>
-    <button id="bQuick">Jogo rápido vs CPU</button>
-    <button id="bTour">🏆 Torneio</button>
-    <div class="lbl">Dificuldade (CPU)</div>
-    <div class="seg" id="segLevel"><button data-v="0">Fácil</button><button data-v="1">Médio</button><button data-v="2">Difícil</button></div>
-    <div class="lbl">Piso</div>
-    <div class="seg" id="segSurf"><button data-v="hard">Rápido</button><button data-v="clay">Terra</button><button data-v="grass">Relva</button></div>
-    <div class="lbl">Ajudas</div>
-    <div class="seg" id="segHelp"><button data-v="total">Total</button><button data-v="normal">Normal</button><button data-v="pro">Pro</button></div>
-    <div class="howto"><b>Toca</b> no campo para correr. <b>Arrasta</b> o dedo para apontar: a mira mostra onde a bola vai (↑ topspin, mais longe = mais forte · ↓ balão). <b>Larga</b> quando o marcador da barra <b>Tempo</b> estiver no verde. <b>Serviço:</b> segura para lançar a bola, arrasta para apontar e larga no verde.<br><small>Ajuda Total: corre sozinho até à bola e perdoa mais erros.</small></div>
-    <p class="muted" id="trophies"></p>
+    <h1 class="wordmark">Duelo<span>Ténis</span></h1>
+    <p class="tagline">Ténis 3D para jogares contra os teus amigos</p>
+    <input id="nameIn" maxlength="12" placeholder="O teu nome" autocomplete="off" aria-label="O teu nome">
+    <button id="bFriend" class="primary"><svg class="i"><use href="#i-vs"/></svg>Desafiar um amigo</button>
+    <div class="row2">
+      <button id="bQuick"><svg class="i"><use href="#i-cpu"/></svg>Jogo rápido</button>
+      <button id="bTour"><svg class="i"><use href="#i-trophy"/></svg>Torneio</button>
+    </div>
+    <div class="panel">
+      <div class="field-l">Dificuldade do CPU</div>
+      <div class="seg" id="segLevel"><button data-v="0">Fácil</button><button data-v="1">Médio</button><button data-v="2">Difícil</button></div>
+      <div class="field-l">Piso</div>
+      <div class="seg" id="segSurf"><button data-v="hard">Rápido</button><button data-v="clay">Terra</button><button data-v="grass">Relva</button></div>
+      <div class="field-l">Ajudas</div>
+      <div class="seg" id="segHelp"><button data-v="total">Total</button><button data-v="normal">Normal</button><button data-v="pro">Pro</button></div>
+    </div>
+    <div class="panel howto">
+      <div><svg class="i"><use href="#i-tap"/></svg><span><b>Toca</b> no campo para correr</span></div>
+      <div><svg class="i"><use href="#i-drag"/></svg><span><b>Arrasta</b> para apontar: ↑ topspin, ↓ balão</span></div>
+      <div><svg class="i"><use href="#i-release"/></svg><span><b>Larga no verde</b> para bater. No serviço: segura, aponta e larga</span></div>
+    </div>
+    <div class="foot" id="trophies"></div>
   </div>
 </div>
 
 <!-- Desafiar amigo (anfitrião) -->
-<div id="hostScr" class="screen hidden">
+<div id="hostScr" class="screen off">
   <div class="card">
     <h2>Desafiar um amigo</h2>
     <p class="muted">Envia este link. O jogo começa quando o teu amigo o abrir.</p>
     <div class="linkbox" id="linkBox">A criar sala…</div>
-    <div class="row2"><button id="bShare" class="primary">Partilhar</button><a id="bWa" class="btn" target="_blank" rel="noopener">WhatsApp</a></div>
-    <button id="bCopy">Copiar link</button>
+    <div class="row2"><button id="bShare" class="primary"><svg class="i"><use href="#i-share"/></svg>Partilhar</button><a id="bWa" class="btn" target="_blank" rel="noopener"><svg class="i"><use href="#i-chat"/></svg>WhatsApp</a></div>
+    <button id="bCopy"><svg class="i"><use href="#i-copy"/></svg>Copiar link</button>
     <p class="muted" id="hostStatus">À espera do teu amigo…</p>
     <button class="ghost" data-back>Cancelar</button>
   </div>
 </div>
 
 <!-- Aceitar desafio (convidado) -->
-<div id="joinScr" class="screen hidden">
+<div id="joinScr" class="screen off">
   <div class="card">
-    <div class="logo">DUELO<br><span>TÉNIS</span></div>
-    <h2>Foste desafiado! 🎾</h2>
-    <input id="joinName" maxlength="12" placeholder="O teu nome" autocomplete="off">
-    <button id="bJoin" class="primary">Aceitar duelo</button>
+    <h1 class="wordmark">Duelo<span>Ténis</span></h1>
+    <h2>Foste desafiado</h2>
+    <input id="joinName" maxlength="12" placeholder="O teu nome" autocomplete="off" aria-label="O teu nome">
+    <button id="bJoin" class="primary"><svg class="i"><use href="#i-vs"/></svg>Aceitar duelo</button>
     <p class="muted" id="joinStatus"></p>
-    <div class="howto"><b>Toca</b> no campo para correr · <b>Arrasta</b> para apontar e <b>larga no verde</b> para bater · <b>Serviço:</b> segura, aponta e larga no verde.</div>
+    <div class="panel howto">
+      <div><svg class="i"><use href="#i-tap"/></svg><span><b>Toca</b> no campo para correr</span></div>
+      <div><svg class="i"><use href="#i-drag"/></svg><span><b>Arrasta</b> para apontar e <b>larga no verde</b></span></div>
+    </div>
     <button class="ghost" data-back>Ir para o menu</button>
   </div>
 </div>
 
 <!-- Torneio -->
-<div id="tourScr" class="screen hidden">
+<div id="tourScr" class="screen off">
   <div class="card">
-    <h2>🏆 Torneio Atlântico</h2>
+    <h2>Torneio Atlântico</h2>
     <p class="muted">3 rondas · pisos diferentes · cada vez mais difícil</p>
     <ul class="bracket" id="bracket"></ul>
     <button id="bTourPlay" class="primary">Jogar</button>
@@ -184,11 +258,11 @@
 </div>
 
 <!-- Fim de jogo -->
-<div id="endScr" class="screen hidden">
+<div id="endScr" class="screen off">
   <div class="card">
-    <div class="trophy" id="endIcon">🏆</div>
-    <h2 id="endTitle">Ganhaste!</h2>
-    <div class="big" id="endScore">10 – 8</div>
+    <div class="result-icon" id="endIcon"></div>
+    <h2 id="endTitle">Ganhaste</h2>
+    <div class="bigscore" id="endScore">10<em>–</em>8</div>
     <p class="muted" id="endSub"></p>
     <button id="bEndMain" class="primary">Revanche</button>
     <button id="bEndMenu">Menu</button>
@@ -196,7 +270,7 @@
 </div>
 
 <!-- Aviso (rede) -->
-<div id="msgScr" class="screen hidden">
+<div id="msgScr" class="screen off">
   <div class="card">
     <h2 id="msgTitle">Ups</h2>
     <p class="muted" id="msgText"></p>
