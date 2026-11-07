@@ -1,0 +1,20 @@
+{
+  "id": "./",
+  "name": "Duelo Ténis",
+  "short_name": "Duelo Ténis",
+  "description": "Ténis 3D para jogares contra os teus amigos.",
+  "lang": "pt-PT",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "portrait",
+  "background_color": "#07152b",
+  "theme_color": "#07152b",
+  "categories": ["games", "sports"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

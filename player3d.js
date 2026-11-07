@@ -1,7 +1,7 @@
 // Jogador 3D articulado (anca, joelhos, ombros, cotovelos, pulsos, cabeça) com animações de ténis.
 // O modelo olha para +z; o lado esquerdo do jogador é +x e o direito (mão da raquete) é -x.
 // As poses são escritas no referencial do jogador (pés no chão, +z = para a rede) e resolvidas com IK de 2 ossos.
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+import * as THREE from './vendor/three.module.min.js';
 
 const UPPER = 0.30, FORE = 0.27, THIGH = 0.46, SHIN = 0.45, ANKLE = 0.075, HIP_H = 0.955;
 const DOWN = new THREE.Vector3(0, -1, 0);

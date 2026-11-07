@@ -1,8 +1,8 @@
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
-import { Athlete, LOOK_PRESETS, TRACK_END } from './player3d.js?v=3';
-import { FX } from './fx.js?v=3';
-import { sfx, unlock } from './audio.js?v=3';
-import { HL, HW, SVC, BR, serverFor, servePositions as rulePositions, judgeFirstBounce, isMatchOver, matchPointFor, outBy } from './rules.js?v=3';
+import * as THREE from './vendor/three.module.min.js';
+import { Athlete, LOOK_PRESETS, TRACK_END } from './player3d.js?v=4';
+import { FX } from './fx.js?v=4';
+import { sfx, unlock } from './audio.js?v=4';
+import { HL, HW, SVC, BR, serverFor, servePositions as rulePositions, judgeFirstBounce, isMatchOver, matchPointFor, outBy } from './rules.js?v=4';
 
 // ---------------------------------------------------------------- constantes
 const DW = 5.485, NET_H = 0.914, GRAV = 9.81;
@@ -1118,7 +1118,8 @@ function onNet(m) {
     case 'bye': netError('Ligação terminada', 'O teu amigo saiu do jogo.'); break;
   }
 }
-$('bFriend').addEventListener('click', () => { audio(); saveName(myName()); hostGame(); });
+const OFFLINE_MSG = 'O duelo com amigos precisa de internet. Sem ligação podes jogar contra o CPU ou o torneio.';
+$('bFriend').addEventListener('click', () => { audio(); saveName(myName()); if (!navigator.onLine) return netError('Sem internet', OFFLINE_MSG); hostGame(); });
 $('bCopy').addEventListener('click', async () => {
   const label = t => { $('bCopy').innerHTML = icon('copy') + t; };
   try { await navigator.clipboard.writeText(NET.url || ''); label('Copiado'); } catch (e) { label('Seleciona e copia'); }
@@ -1132,6 +1133,7 @@ $('bShare').addEventListener('click', async () => {
 $('bJoin').addEventListener('click', () => {
   audio(); saveName(($('joinName').value || '').trim() || 'Amigo');
   const code = (location.hash.match(/d=([a-z0-9]+)/) || [])[1];
+  if (!navigator.onLine) return netError('Sem internet', OFFLINE_MSG);
   if (code) joinGame(code);
 });
 
@@ -1219,6 +1221,32 @@ renderer.compile(scene, camera);
 requestAnimationFrame(frame);
 // avança o jogo à mão (só para testes automáticos)
 function advance(sec) { const n = Math.round(sec / 0.02); for (let i = 0; i < n; i++) { fakeNow = Math.max(fakeNow, last) + 20; frame(fakeNow, true); } }
+
+// ---------------------------------------------------------------- app instalável (offline, instalar, atualizar)
+const isStandalone = () => matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || navigator.standalone === true;
+const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+let installEvt = null, updateAsked = false;
+function refreshInstall() {
+  const b = $('bInstall');
+  b.classList.toggle('hidden', isStandalone() || !(installEvt || isIOS));
+}
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; refreshInstall(); });
+addEventListener('appinstalled', () => { installEvt = null; refreshInstall(); });
+$('bInstall').addEventListener('click', async () => {
+  if (installEvt) { installEvt.prompt(); try { await installEvt.userChoice; } catch (e) {} installEvt = null; refreshInstall(); return; }
+  $('msgTitle').textContent = 'Instalar no iPhone';
+  $('msgText').textContent = 'No Safari, toca no botão Partilhar e depois em "Adicionar ao ecrã principal". O jogo fica com ícone e abre sem internet.';
+  show('msgScr');
+});
+refreshInstall();
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || /[?&]sw=1/.test(location.search))) {
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    const offer = () => { if (reg.waiting && navigator.serviceWorker.controller) { $('bUpdate').classList.remove('hidden'); $('bUpdate').onclick = () => { updateAsked = true; reg.waiting.postMessage('skipWaiting'); }; } };
+    offer();
+    reg.addEventListener('updatefound', () => { const w = reg.installing; if (w) w.addEventListener('statechange', () => { if (w.state === 'installed') offer(); }); });
+  }).catch(() => {});
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (updateAsked) location.reload(); });
+}
 
 const inviteCode = (location.hash.match(/d=([a-z0-9]+)/) || [])[1];
 if (inviteCode) show('joinScr'); else goMenu();

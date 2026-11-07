@@ -1,5 +1,5 @@
 // Efeitos de impacto: pó no ressalto, marcas da bola, rasto da bola rápida, rede a abanar e tremor de câmara.
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+import * as THREE from './vendor/three.module.min.js';
 
 const DUST = {
   clay:  { cols:[0xd98a58, 0xc46a3c, 0xe8a77a], size:0.17, life:0.9,  n:18, up:1.0, out:1.2, mark:0x8a3f1f, markA:0.4,  markLife:9 },
