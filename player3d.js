@@ -204,8 +204,10 @@ export class Athlete {
     const dx = moving ? lx / sp : 0, dz = moving ? lz / sp : 0;
     const bounce = (!s.act && s.mode === 'ready' && !moving) ? Math.sin(this.t * 11) * 0.012 : 0;
     const runBob = moving ? Math.abs(Math.sin(this.gait)) * 0.03 : 0;
+    // split-step: pequeno salto no momento em que o adversário bate
+    const sk = s.split !== undefined && s.split >= 0 && s.split < 0.32 && sp < 3 ? Math.sin(s.split / 0.32 * Math.PI) : 0;
     const pyaw = cu.pyaw;
-    this.pelvis.position.set(0, HIP_H - cu.c * 0.2 - runBob + bounce, 0);
+    this.pelvis.position.set(0, HIP_H - cu.c * 0.2 - runBob + bounce + sk * 0.05, 0);
     this.pelvis.rotation.set(0, pyaw, 0);
     this.spine.rotation.set(cu.lean + Math.min(0.22, sp * 0.035), 0, 0);
     this.chest.rotation.set(0, cu.twist, 0);
@@ -222,7 +224,7 @@ export class Athlete {
       let fx = L.sx * stanceW, fz = L.sx * 0.03;
       [fx, fz] = [fx * cf + fz * sf, -fx * sf + fz * cf];
       if (moving) { fx += dx * Math.sin(ph) * stride; fz += dz * Math.sin(ph) * stride; }
-      const fyH = moving ? Math.max(0, Math.cos(ph)) * lift : 0;
+      const fyH = (moving ? Math.max(0, Math.cos(ph)) * lift : 0) + sk * 0.05;
       vT.set(fx, ANKLE + fyH, fz);
       L.hip.getWorldPosition(vA).applyMatrix4(rootInv);
       vP.set(Math.sin(fy) + L.sx * 0.15, 0, Math.cos(fy));

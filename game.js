@@ -2,10 +2,11 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.m
 import { Athlete, LOOK_PRESETS, TRACK_END } from './player3d.js';
 import { FX } from './fx.js';
 import { sfx, unlock } from './audio.js';
+import { HL, HW, SVC, BR, serverFor, servePositions as rulePositions, judgeFirstBounce, isMatchOver, matchPointFor, outBy } from './rules.js';
 
 // ---------------------------------------------------------------- constantes
-const HL = 11.885, HW = 4.115, DW = 5.485, SVC = 6.40, NET_H = 0.914, BR = 0.035, GRAV = 9.81;
-const STEP = 1 / 120, PLANE = 0.45, POINTS_TO_WIN = 10, RUN_SPEED = 6.2, WALK_SPEED = 2.4;
+const DW = 5.485, NET_H = 0.914, GRAV = 9.81;
+const STEP = 1 / 120, PLANE = 0.45, RUN_SPEED = 6.2, WALK_SPEED = 2.4;
 const TOSS_Y0 = 1.3, TOSS_V = 5.1, T_IDEAL = 0.56, T_FAIL = 1.05;   // contacto ideal a ≈2,6 m, onde a raquete chega
 const SURFACES = {
   hard:  { label:'Piso rápido', court:0x2b64ad, outer:0x37805a, e:0.68, f:0.80 },
@@ -304,7 +305,7 @@ function launch(idx, from, v, g, isServe, fromNet, q = 0.7, spin = 0.3) {
   const volley = !isServe && B.bounces === 0 && B.hitter >= 0;
   const fh = fhSide(P[idx], from.x);
   B.p.copy(from); B.pp.copy(from); B.v.copy(v); B.g = g; B.spin = spin; B.bounces = 0; B.hitter = idx; B.isServe = isServe;
-  B.live = true; B.held = false; B.netHit = false; B.hitId++;
+  B.live = true; B.held = false; B.netHit = false; B.netCord = false; B.hitId++;
   M.phase = 'rally'; M.toss = null;
   for (const pl of P) { pl.prevD = null; pl.crossT = null; pl.whiff = false; pl.swipe = null; pl.incoming = null; pl.autoPlan = null; }
   P[idx].act = { type:isServe ? 'sv' : volley ? (fh ? 'vf' : 'vb') : (fh ? 'fh' : 'bh'), t:0, phase:'swing',
@@ -316,6 +317,7 @@ function launch(idx, from, v, g, isServe, fromNet, q = 0.7, spin = 0.3) {
   if (from.y > 1.9 && !isServe && speed > 20) fx.shake(0.06, 0.25);      // smash
   if (isServe) sfx.hush(true);
   M.pointHits = (M.pointHits || 0) + 1;
+  P[other(idx)].splitAt = simTime;
   if (idx === M.me) {
     buzz(q >= 1 ? 30 : 14);
     if (H().recover && !isServe) { const me = P[idx]; me.target = { x:0, z:me.side * (HL + 0.5) }; me.walk = false; }
@@ -397,7 +399,12 @@ function stepBall(dt) {
   B.v.y -= B.g * dt;
   B.p.addScaledVector(B.v, dt);
   if (!B.netHit && pz !== 0 && Math.sign(pz) !== Math.sign(B.p.z)) {
-    if (Math.abs(B.p.x) < DW + 0.914 && B.p.y < NET_H + BR) {
+    if (Math.abs(B.p.x) < DW + 0.914 && B.p.y < NET_H + BR && B.p.y > NET_H - 0.045 && !B.netCord) {
+      // toca na fita e passa: a bola perde velocidade e salta por cima
+      B.netCord = true; B.p.y = NET_H + BR + 0.01; B.v.z *= 0.42; B.v.x *= 0.7; B.v.y = Math.abs(B.v.y) * 0.25 + 0.7;
+      sfx.net(camera.position.distanceTo(B.p), 0.35); sfx.ooh(0.55);
+      fx.netHit(B.p.x, 0.4, -Math.sign(pz));
+    } else if (Math.abs(B.p.x) < DW + 0.914 && B.p.y < NET_H + BR) {
       B.netHit = true; B.p.z = Math.sign(pz) * 0.07; B.v.z *= -0.12; B.v.x *= 0.3; B.v.y = Math.min(B.v.y, 0) * 0.3;
       sfx.net(camera.position.distanceTo(B.p), clamp(B.v.length() / 25, 0.2, 1));
       fx.netHit(B.p.x, clamp(Math.abs(B.v.z) / 25, 0.2, 1), -Math.sign(pz));
@@ -422,32 +429,22 @@ function stepBall(dt) {
   if (B.v.y === 0 && B.p.y <= BR + 1e-3) B.v.multiplyScalar(0.98);
 }
 function judgeBounce() {
-  const hit = B.hitter, rc = other(hit), rs = sideOf(rc), x = B.p.x, z = B.p.z, tol = BR + 0.02;
+  const hit = B.hitter, rc = other(hit), rs = sideOf(rc), x = B.p.x, z = B.p.z;
   if (B.bounces === 1) {
+    const call = judgeFirstBounce({ x, z, isServe:B.isServe, receiverSide:rs, boxSign:M.boxSign });
     if (B.isServe) {
-      const inBox = Math.sign(z) === rs && Math.abs(z) <= SVC + tol && Math.abs(x) <= HW + tol && x * M.boxSign >= -tol;
-      if (!inBox) callFault(Math.sign(z) === rs && Math.abs(z) > SVC + tol ? 'Falta · longa' : 'Falta');
-    } else {
-      const inside = Math.sign(z) === rs && Math.abs(z) <= HL + tol && Math.abs(x) <= HW + tol;
-      if (!inside) {
-        if (Math.sign(z) === rs && Math.max(Math.abs(x) - HW, Math.abs(z) - HL) < 0.3) sfx.ooh(0.7);
-        endPoint(rc, 'Fora!');
-      }
+      if (call === 'in' && B.netCord) callLet();
+      else if (call !== 'in') callFault(call === 'fault-long' ? 'Falta · longa' : 'Falta');
+    } else if (call === 'out') {
+      if (Math.sign(z) === rs && outBy(x, z) < 0.3) sfx.ooh(0.7);
+      endPoint(rc, 'Fora!');
     }
   } else if (B.bounces === 2) {
     endPoint(hit, B.isServe ? 'Ás!' : 'Ponto!');
   }
 }
-function computeServer() {
-  const n = M.score[0] + M.score[1];
-  if (n === 0) return M.first;
-  return Math.floor((n - 1) / 2) % 2 === 0 ? other(M.first) : M.first;
-}
-function servePositions() {
-  const n = M.score[0] + M.score[1], deuce = n % 2 === 0, sv = computeServer(), rc = other(sv), ss = sideOf(sv), rs = sideOf(rc);
-  const sx = (deuce ? 1 : -1) * ss * 0.9, boxSign = -Math.sign(sx);
-  return { sv, rc, boxSign, svPos:{ x:sx, z:ss * (HL + 0.25) }, rcPos:{ x:boxSign * 2.5, z:rs * (HL + 0.5) } };
-}
+const computeServer = () => serverFor(M.score, M.first);
+const servePositions = () => rulePositions(M.score, M.first);
 function preparePoint() { M.server = computeServer(); M.serveNum = 1; resetForServe(); }
 function resetForServe() {
   timers.length = 0;
@@ -482,9 +479,8 @@ function applyPoint(w, reason) {
   const mine = w === M.me;
   if (mine && reason === 'Ponto!' && B.hitter === M.me) reason = 'Vencedor!';
   let sub = mine ? explainWin(reason) : explainLoss(reason);
-  const [a, b] = M.score, top = Math.max(a, b), lead = Math.abs(a - b);
-  const over = top >= POINTS_TO_WIN && lead >= 2;
-  if (!over && top >= POINTS_TO_WIN - 1 && a !== b) sub += ' · Match point';
+  const over = isMatchOver(M.score);
+  if (!over && matchPointFor(M.score) !== -1) sub += ' · Match point';
   toast(reason, mine ? 'good' : 'bad', sub, 1300);
   sfx.hush(false);
   const big = reason === 'Ás!' || reason === 'Vencedor!';
@@ -527,6 +523,16 @@ function walkToPositions() {
 function callFault(reason) {
   if (M.mode === 'online') netSend({ t:'fault', r:reason });
   applyFault(reason);
+}
+function callLet() {
+  if (M.mode === 'online') netSend({ t:'let' });
+  applyLet();
+}
+function applyLet() {
+  timers.length = 0;
+  M.phase = 'pointover'; M.lastWinner = -1; landRing.material.opacity = 0;
+  toast('Let', 'info', 'Tocou na rede · repete o ' + (M.serveNum === 2 ? '2.º serviço' : 'serviço'), 1000);
+  after(1.2, resetForServe);
 }
 function applyFault(reason) {
   if (M.serveNum === 1) {
@@ -628,22 +634,36 @@ function cpuServe() {
   const pl = P[M.server]; if (!pl.isCPU || M.phase !== 'preserve') return;
   startToss(pl.idx, serveTarget(pl.idx, rand(-1, 1), rand(0.45, 1)));
 }
+// IA com comportamento humano: reação variável, erro de leitura que corrige a meio, recuperação para o centro
 function cpuUpdate(pl) {
-  const L = LEVELS[M.level];
+  const L = LEVELS[M.level], ai = pl.ai;
   if (M.phase === 'rally' && B.live && !B.netHit && B.hitter >= 0 && B.hitter !== pl.idx) {
-    if (pl.ai.planId !== B.hitId) { pl.ai.planId = B.hitId; pl.ai.planAt = simTime + L.react; pl.ai.plan = null; }
-    if (!pl.ai.plan && simTime >= pl.ai.planAt) pl.ai.plan = planIntercept(pl, L.speed, 0);
-    if (pl.ai.plan) { pl.target = pl.ai.plan; pl.walk = false; }
+    if (ai.planId !== B.hitId) {
+      const k = 1 - L.q, misread = Math.random() < 0.25 * k;
+      ai.planId = B.hitId; ai.planAt = simTime + L.react + Math.abs(gauss()) * 0.06; ai.plan = null; ai.fixed = false;
+      ai.err = { x:gauss() * 0.35 * k + (misread ? Math.sign(gauss()) * rand(0.5, 0.9) : 0), z:gauss() * 0.5 * k };
+    }
+    if (simTime >= ai.planAt && (!ai.plan || (!ai.fixed && simTime >= ai.planAt + 0.35))) {
+      if (ai.plan) { ai.fixed = true; ai.err.x *= 0.35; ai.err.z *= 0.35; }   // corrige a leitura a meio do caminho
+      const p = planIntercept(pl, L.speed, 0);
+      ai.plan = p ? { x:p.x + ai.err.x, z:p.z + ai.err.z } : null;
+    }
+    if (ai.plan) { pl.target = ai.plan; pl.walk = false; }
   } else if (M.phase === 'rally' && B.hitter === pl.idx) {
-    pl.target = { x:clamp(B.p.x * 0.2, -1.5, 1.5), z:pl.side * (HL + 0.7) }; pl.walk = false;
+    if (!ai.rec || ai.rec.id !== B.hitId) {
+      const fb = predictBall(3).find(q => q.b === 1);
+      ai.rec = { id:B.hitId, at:simTime + 0.18 + Math.random() * 0.12, x:clamp((fb ? fb.x : 0) * 0.35 + gauss() * 0.3, -1.8, 1.8), z:pl.side * (HL + rand(0.5, 1.1)) };
+    }
+    if (simTime >= ai.rec.at) { pl.target = { x:ai.rec.x, z:ai.rec.z }; pl.walk = false; }
   }
 }
 function cpuTryHit(pl) {
   if (!reachable(pl)) { whiff(pl); return; }
   const L = LEVELS[M.level], foe = P[other(pl.idx)], r = -pl.side;
   const fx = foe.pos.x || rand(-1, 1);
-  let tx = Math.random() < 0.7 ? -Math.sign(fx) * rand(L.width * 0.5, L.width) : rand(-L.width, L.width) * 0.6;
-  const lob = Math.abs(foe.pos.z) < 6.5 ? Math.random() < 0.45 : Math.random() < 0.04;
+  const stretched = Math.hypot(pl.vel.x, pl.vel.z) > 3.2 || Math.abs(B.p.x - pl.pos.x) > 1.25;   // a correr ou esticado: joga mais seguro
+  let tx = stretched ? rand(-1.2, 1.2) : Math.random() < 0.7 ? -Math.sign(fx) * rand(L.width * 0.5, L.width) : rand(-L.width, L.width) * 0.6;
+  const lob = Math.abs(foe.pos.z) < 6.5 ? Math.random() < 0.45 : Math.random() < (stretched ? 0.25 : 0.04);
   let depth = lob ? rand(9, 10.8) : rand(L.depth[0], L.depth[1]);
   // erros não forçados: mais prováveis quando a bola vem forte
   const press = clamp((B.v.length() - 15) / 10, 0, 1);
@@ -653,7 +673,8 @@ function cpuTryHit(pl) {
     else if (kind < 0.75) tx = Math.sign(tx || 1) * rand(4.4, 5.2);
     else { executeShot(pl.idx, { type:'topspin', tx, tz:r * depth, power:0.9, q:0.2, err:0.2, margin:-0.35 }); return; }
   }
-  executeShot(pl.idx, { type:lob ? 'lob' : 'topspin', tx, tz:r * depth, power:rand(L.pow[0], L.pow[1]), q:clamp(L.q + rand(-0.18, 0.15), 0.1, 1), err:rand(-0.1, 0.1) });
+  executeShot(pl.idx, { type:lob ? 'lob' : 'topspin', tx, tz:r * depth, power:rand(L.pow[0], L.pow[1]) * (stretched ? 0.75 : 1),
+    q:clamp(L.q + rand(-0.18, 0.15) - (stretched ? 0.2 : 0), 0.1, 1), err:rand(-0.1, 0.1) });
 }
 
 // ---------------------------------------------------------------- movimento e animação
@@ -1088,6 +1109,7 @@ function onNet(m) {
     }
     case 'point': applyPoint(m.w, m.r); break;
     case 'fault': applyFault(m.r); break;
+    case 'let': applyLet(); break;
     case 'ping': netSend({ t:'pong', c:m.c }); break;
     case 'pong': NET.rtt = (performance.now() - m.c) / 1000; break;
     case 'rematch': M.remoteRematch = true; maybeRematch(); break;
@@ -1146,7 +1168,7 @@ function frame(now, manual) {
     updateAct(pl, dt);
     const ix = pl.pp.x + (pl.pos.x - pl.pp.x) * alpha, iz = pl.pp.z + (pl.pos.z - pl.pp.z) * alpha;
     pl.fig.update(dt, { x:ix, z:iz, vx:pl.vel.x, vz:pl.vel.z, side:pl.side,
-      ball:inMatch() && (B.live || B.held || M.toss) ? B.p : null, act:pl.act, mode:figMode(pl) });
+      ball:inMatch() && (B.live || B.held || M.toss) ? B.p : null, act:pl.act, mode:figMode(pl), split:simTime - (pl.splitAt ?? -9) });
   }
   const showBall = inMatch() && (B.live || B.held || !!M.toss);
   ballMesh.visible = blob.visible = showBall;
