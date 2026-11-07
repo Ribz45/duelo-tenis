@@ -16,9 +16,9 @@ const LEVELS = [
   { label:'Difícil', q:0.84, speed:6.0, react:0.16, pow:[0.55, 0.9], width:3.5, depth:[8.4, 11.0], svSig:0.05, svPow:0.9,  miss:0.08 },
 ];
 const HELPS = {
-  total:  { label:'Total',  green:0.11,  auto:true,  recover:true,  assist:99,  preview:true,  marker:true,  err:0.65, reach:1.9 },
-  normal: { label:'Normal', green:0.075, auto:false, recover:false, assist:4.5, preview:true,  marker:true,  err:1.0,  reach:1.6 },
-  pro:    { label:'Pro',    green:0.05,  auto:false, recover:false, assist:0,   preview:false, marker:false, err:1.12, reach:1.5 },
+  total:  { label:'Total',  green:0.12, auto:true,  recover:true,  assist:99,  preview:true,  marker:true,  err:0.65, reach:1.9 },
+  normal: { label:'Normal', green:0.09, auto:false, recover:false, assist:4.5, preview:true,  marker:true,  err:1.0,  reach:1.65 },
+  pro:    { label:'Pro',    green:0.06, auto:false, recover:false, assist:0,   preview:false, marker:false, err:1.12, reach:1.5 },
 };
 const TOUR = [
   { round:'Quartos-de-final', opp:'Tiago Rocha',   level:0, surface:'clay',  look:2 },
@@ -207,7 +207,8 @@ const H = () => HELPS[M.help] || HELPS.normal;
 const errMul = idx => (M.mode === 'online' || idx !== M.me) ? 1 : H().err;
 const greenWin = () => (M.mode === 'online' ? HELPS.normal.green : H().green);
 const reachOf = pl => (pl.isCPU || pl.remote || M.mode === 'online') ? 1.6 : H().reach;
-function timingQ(err, g) { const a = Math.abs(err); return a <= g ? 1 : clamp(0.92 - (a - g) / 0.28, 0, 0.92); }
+// dentro do verde = perfeito; no amarelo (≈0,16 s à volta) continua "Bom"; depois cai devagar
+function timingQ(err, g) { const a = Math.abs(err); return a <= g ? 1 : clamp(0.92 - (a - g) / 0.34, 0, 0.92); }
 function timingLabel(q, err) { if (q >= 1) return 'Perfeito'; if (q >= 0.65) return 'Bom'; if (q >= 0.3) return err < 0 ? 'Cedo' : 'Tarde'; return err < 0 ? 'Muito cedo' : 'Muito tarde'; }
 const tossY = t => TOSS_Y0 + TOSS_V * t - 0.5 * GRAV * t * t;
 
@@ -249,7 +250,7 @@ function launch(idx, from, v, g, isServe, fromNet) {
   if (idx === M.me) {
     buzz(18);
     if (H().recover && !isServe) { const me = P[idx]; me.target = { x:0, z:me.side * (HL + 0.5) }; me.walk = false; }
-  }
+  } else M.lastMine = {};
   if (M.mode === 'online' && idx === M.me && !fromNet) netSend({ t:'hit', p:[from.x, from.y, from.z], v:[v.x, v.y, v.z], g, s:isServe ? 1 : 0 });
   landRing.material.opacity = 0;
   if (idx !== M.me && H().marker) {
@@ -313,8 +314,12 @@ function releaseServe(idx, aim) {
   const v = makeShot(from, tx, tz, speed, g, margin);
   launch(idx, from, v, g, true);
   const kmh = Math.round(v.length() * 3.6);
-  if (idx === M.me) { shotInfo((second ? '2.º serviço' : 'Serviço') + ' · ' + kmh + ' km/h', q, err); if (q >= 1) toast('Perfeito!', 'gold', kmh + ' km/h', 700); }
-  else toast(kmh + ' km/h', 'info', '', 700);
+  popText(kmh + ' km/h', 'info', new V3(pl.pos.x, 2.4, pl.pos.z));
+  if (idx === M.me) {
+    M.lastMine = { q, err, power:q, type:'serve' };
+    shotInfo((second ? '2.º serviço' : 'Serviço') + ' · ' + kmh + ' km/h', q, err);
+    popText(timingLabel(q, err), qCls(q), new V3(pl.pos.x, 1.7, pl.pos.z));
+  }
 }
 
 // ---------------------------------------------------------------- bola e regras
@@ -399,7 +404,8 @@ function applyPoint(w, reason) {
   M.lastWinner = w; M.pointEndT = simTime; M.toss = null;
   landRing.material.opacity = 0;
   const mine = w === M.me;
-  let sub = mine ? 'Ponto para ti' : 'Ponto para ' + M.names[w];
+  if (mine && reason === 'Ponto!' && B.hitter === M.me) reason = 'Vencedor!';
+  let sub = mine ? explainWin(reason) : explainLoss(reason);
   const [a, b] = M.score, top = Math.max(a, b), lead = Math.abs(a - b);
   const over = top >= POINTS_TO_WIN && lead >= 2;
   if (!over && top >= POINTS_TO_WIN - 1 && a !== b) sub += ' · Match point';
@@ -408,6 +414,28 @@ function applyPoint(w, reason) {
   updateHUD();
   if (!over) after(1.0, walkToPositions);
   after(2.3, () => { if (over) finishMatch(); else preparePoint(); });
+}
+// explicar porque o ponto acabou (do ponto de vista do jogador local)
+function explainWin(reason) {
+  const foe = M.names[other(M.me)];
+  if (reason === 'Vencedor!') return foe + ' não chegou à bola';
+  if (reason === 'Fora!' || reason === 'Rede!') return 'Erro de ' + foe;
+  if (reason === 'Ás!') return 'Serviço sem resposta';
+  if (reason === 'Dupla falta') return foe + ' fez dupla falta';
+  return 'Ponto para ti';
+}
+function explainLoss(reason) {
+  const L = M.lastMine || {}, mineShot = B.hitter === M.me;
+  const timing = L.q !== undefined && L.q < 0.65 ? (L.err < 0 ? 'largaste cedo' : 'largaste tarde') : null;
+  if (reason === 'Fora!' && mineShot) {
+    const where = Math.abs(B.p.z) > HL ? 'Bola longa' : 'Bola larga';
+    return where + ' · ' + (timing || (L.power > 0.8 ? 'potência a mais' : 'arriscaste perto da linha'));
+  }
+  if (reason === 'Rede!' && mineShot) return 'Na rede · ' + (timing || 'bola baixa e forte: arrasta mais para cima');
+  if (reason === 'Ás!') return 'Não devolveste o serviço';
+  if (reason === 'Dupla falta') return 'Dupla falta · no 2.º serviço larga no verde';
+  if (reason === 'Ponto!') return L.whiff ? L.whiff : 'Não chegaste à bola · toca para correr';
+  return 'Ponto para ' + M.names[other(M.me)];
 }
 function walkToPositions() {
   const sp = servePositions();
@@ -438,7 +466,10 @@ function legalFor(pl) { return B.bounces === 1 || (B.bounces === 0 && !B.isServe
 function reachable(pl) { return legalFor(pl) && Math.abs(B.p.x - pl.pos.x) <= reachOf(pl) && B.p.y <= 2.7 && B.p.y >= 0.06; }
 function whiff(pl, msg) {
   pl.act = { type:fhSide(pl) ? 'fh' : 'bh', t:0, phase:'swing' }; pl.whiff = true;
-  if (pl.idx === M.me && msg) { toast(msg, 'bad', '', 700); shotInfo('Falhaste', 0, 0, msg); }
+  if (pl.idx === M.me && msg) {
+    M.lastMine = { whiff:msg + (msg === 'Fora de alcance' ? ' · toca para correr até à bola' : ' · larga no verde') };
+    popText(msg, 'bad', new V3(pl.pos.x, 1.9, pl.pos.z)); shotInfo('Falhaste', 0, 0, msg);
+  }
 }
 function contactCheck(pl) {
   if (B.hitter === pl.idx || B.hitter < 0 || B.netHit || pl.remote) return;
@@ -467,8 +498,9 @@ function tryHit(pl, sw, err) {
   const q = timingQ(err, greenWin() * (B.isServe ? 1.5 : 1));
   const v = executeShot(pl.idx, { type:sw.type, tx:sw.tx, tz:sw.tz, power:sw.power, q, err });
   const name = sw.type === 'lob' ? 'Balão' : volley ? 'Vólei' : 'Topspin';
+  M.lastMine = { q, err, power:sw.power, type:sw.type };
   shotInfo(name + ' · ' + Math.round(v.length() * 3.6) + ' km/h', q, err);
-  if (q >= 1) toast('Perfeito!', 'gold', '', 600);
+  popText(timingLabel(q, err), qCls(q), new V3(pl.pos.x, 1.9, pl.pos.z));
   if (q < 0.65) countTip('timing', 3, 'Larga o dedo quando o marcador da barra "Tempo" passar na zona verde.');
 }
 
@@ -745,8 +777,27 @@ function timingTick(commit) {
   if (commit && rel !== null) { tmFrozen = rel; tmFrozenAt = simTime; }
   return rel;
 }
+const qCls = q => (q >= 1 ? 'gold' : q >= 0.65 ? 'good' : q >= 0.3 ? 'warn' : 'bad');
+// texto curto que sobe junto ao jogador (qualidade do timing, velocidade)
+const pops = [];
+function popText(text, cls, pos) {
+  const el = document.createElement('div'); el.className = 'pop ' + cls; el.textContent = text;
+  $('pops').append(el); pops.push({ el, pos, t:0 });
+  if (pops.length > 4) { pops[0].el.remove(); pops.shift(); }
+}
+const _pv = new V3();
+function updatePops(dt) {
+  for (let i = pops.length - 1; i >= 0; i--) {
+    const p = pops[i]; p.t += dt;
+    _pv.copy(p.pos); _pv.y += p.t * 0.8; _pv.project(camera);
+    const k = Math.min(1, p.t / 0.12);
+    p.el.style.transform = `translate(${(_pv.x * 0.5 + 0.5) * innerWidth}px,${(-_pv.y * 0.5 + 0.5) * innerHeight}px) translate(-50%,-50%) scale(${0.7 + 0.3 * k})`;
+    p.el.style.opacity = clamp(1.6 - p.t * 1.7, 0, 1);
+    if (p.t > 0.95) { p.el.remove(); pops.splice(i, 1); }
+  }
+}
 function shotInfo(text, q, err, chip) {
-  const lbl = chip || timingLabel(q, err), cls = q >= 1 ? 'gold' : q >= 0.65 ? 'good' : q >= 0.3 ? 'warn' : 'bad';
+  const lbl = chip || timingLabel(q, err), cls = qCls(q);
   $('shotInfo').innerHTML = `<b>${text}</b> <span class="chip ${cls}">${lbl}</span>`;
   $('shotInfo').classList.add('show');
   $('qFill').style.width = Math.round(q * 100) + '%'; $('qFill').className = cls;
@@ -785,7 +836,7 @@ function saveName(n) { store.set('name', n); $('nameIn').value = n; $('joinName'
 
 function startMatch(cfg) {
   Object.assign(M, { mode:cfg.mode, me:cfg.me, names:cfg.names, surface:cfg.surface, level:cfg.level ?? M.level,
-    first:cfg.first, score:[0, 0], pointsPlayed:0, wantRematch:false, remoteRematch:false, tips:{}, counts:{}, toss:null });
+    first:cfg.first, score:[0, 0], pointsPlayed:0, wantRematch:false, remoteRematch:false, tips:{}, counts:{}, toss:null, lastMine:{} });
   buildCourt(M.surface);
   P.forEach((p, i) => { p.isCPU = false; p.remote = false; p.target = null; p.swipe = null; p.act = null; p.ai.planId = -1; p.fig.setLook(LOOK_PRESETS[cfg.looks ? cfg.looks[i] : i]); });
   if (M.mode === 'cpu' || M.mode === 'tour') P[1].isCPU = true;
@@ -1012,6 +1063,7 @@ function frame(now, manual) {
   markRing.material.opacity = Math.max(0, markRing.material.opacity - dt * 0.6);
   if (inMatch() && M.phase !== 'over') showAimVisuals(); else { aimRing.material.opacity = aimDot.material.opacity = 0; prevLine.visible = false; }
   updateShotUI();
+  updatePops(dt);
   updateCamera(dt, now / 1000);
   renderer.render(scene, camera);
   if (!manual) requestAnimationFrame(frame);

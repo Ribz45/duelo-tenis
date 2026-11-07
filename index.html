@@ -91,6 +91,12 @@
   #coach span { max-width:420px; background:rgba(15,61,110,.94); border-left:4px solid var(--ball); padding:8px 12px; border-radius:10px;
     font-size:13.5px; line-height:1.4; box-shadow:0 4px 14px rgba(0,0,0,.35); }
   #coach span::before { content:'🧢 Treinador: '; font-weight:800; color:var(--ball); }
+  .meter .ml .mid { color:#dfe7f2; }
+  #pops { position:fixed; inset:0; pointer-events:none; z-index:6; overflow:hidden; }
+  .pop { position:absolute; left:0; top:0; font-weight:900; font-size:17px; letter-spacing:.5px; text-transform:uppercase;
+    white-space:nowrap; text-shadow:0 2px 0 rgba(0,0,0,.45), 0 0 10px rgba(0,0,0,.35); will-change:transform,opacity; }
+  .pop.gold { color:var(--ball); font-size:20px; } .pop.good { color:var(--green); } .pop.warn { color:#f0a83c; }
+  .pop.bad { color:var(--red); } .pop.info { color:#fff; font-size:14px; }
 </style>
 </head>
 <body>
@@ -106,10 +112,11 @@
 <button id="quit" class="hidden" aria-label="Sair">✕</button>
 <div id="toast"></div>
 <div id="coach"><span></span></div>
+<div id="pops"></div>
 <div id="shotUI" class="hidden">
   <div id="shotInfo"></div>
   <div class="meter">
-    <div class="ml"><span>Tempo</span><span>larga no verde</span></div>
+    <div class="ml"><span>Cedo</span><span class="mid">Tempo · larga no verde</span><span>Tarde</span></div>
     <div class="bar" id="tmBar"><div id="tmY"></div><div id="tmG"></div><div id="tmTick"></div><div id="tmMark"></div></div>
   </div>
   <div class="meter">
