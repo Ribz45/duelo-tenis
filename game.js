@@ -1,8 +1,8 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
-import { Athlete, LOOK_PRESETS, TRACK_END } from './player3d.js';
-import { FX } from './fx.js';
-import { sfx, unlock } from './audio.js';
-import { HL, HW, SVC, BR, serverFor, servePositions as rulePositions, judgeFirstBounce, isMatchOver, matchPointFor, outBy } from './rules.js';
+import { Athlete, LOOK_PRESETS, TRACK_END } from './player3d.js?v=3';
+import { FX } from './fx.js?v=3';
+import { sfx, unlock } from './audio.js?v=3';
+import { HL, HW, SVC, BR, serverFor, servePositions as rulePositions, judgeFirstBounce, isMatchOver, matchPointFor, outBy } from './rules.js?v=3';
 
 // ---------------------------------------------------------------- constantes
 const DW = 5.485, NET_H = 0.914, GRAV = 9.81;
@@ -730,7 +730,9 @@ function resize() {
   renderer.setSize(w, h, false);
   camera.aspect = a;
   camera.fov = clamp(2 * Math.atan(Math.tan(21 * Math.PI / 180) / a) * 180 / Math.PI, 46, 74);
-  if (a < 0.8) Object.assign(CAM, { h:10.8, back:9.8, look:0.6 }); else Object.assign(CAM, { h:7.5, back:9.5, look:3.5 });
+  // vertical: de 21:9 (a≈0,43) a 16:9 (a≈0,56) o ponto de mira aproxima-se para o jogador não ficar atrás das barras
+  if (a < 0.8) Object.assign(CAM, { h:10.8 + clamp(a - 0.46, 0, 0.3) * 6, back:9.8, look:0.6 - clamp(a - 0.46, -0.05, 0.3) * 13 });
+  else Object.assign(CAM, { h:7.5, back:9.5, look:3.5 });
   camera.updateProjectionMatrix();
 }
 addEventListener('resize', resize); resize();
@@ -1150,9 +1152,25 @@ function step(dt) {
   if (B.live && M.phase === 'rally') for (const pl of P) contactCheck(pl);
 }
 let last = performance.now(), acc = 0, fakeNow = 0, alpha = 1;
+const perf = { level:0, sum:0, n:0, slow:0 };
+const DPR_LEVELS = [Math.min(devicePixelRatio || 1, 2), Math.min(devicePixelRatio || 1, 1.6), Math.min(devicePixelRatio || 1, 1.3), 1];
+function perfTick(dt) {
+  if (!inMatch() || dt <= 0) return;
+  perf.sum += dt; perf.n++;
+  if (perf.n < 90) return;
+  const avg = perf.sum / perf.n; perf.sum = perf.n = 0;
+  perf.slow = avg > 1 / 50 ? perf.slow + 1 : 0;           // 2 janelas seguidas abaixo de 50 fps → baixa um nível
+  if (perf.slow >= 2 && perf.level < DPR_LEVELS.length - 1) {
+    perf.level++; perf.slow = 0;
+    renderer.setPixelRatio(DPR_LEVELS[perf.level]); resize();
+    if (perf.level >= 2 && sun.shadow.mapSize.x > 1024) { sun.shadow.mapSize.set(1024, 1024); sun.shadow.map?.dispose(); sun.shadow.map = null; }
+  }
+}
 const _bp = new V3();
 function frame(now, manual) {
-  const dt = clamp((now - last) / 1000, 0, 0.05); last = Math.max(last, now);
+  const rawDt = (now - last) / 1000;
+  const dt = clamp(rawDt, 0, 0.05); last = Math.max(last, now);
+  if (!manual) perfTick(rawDt);
   if (inMatch() && M.phase !== 'over' && now >= hitStopUntil) {
     acc += dt;
     while (acc >= STEP) { step(STEP); acc -= STEP; }
@@ -1197,6 +1215,7 @@ function frame(now, manual) {
   renderer.render(scene, camera);
   if (!manual) requestAnimationFrame(frame);
 }
+renderer.compile(scene, camera);
 requestAnimationFrame(frame);
 // avança o jogo à mão (só para testes automáticos)
 function advance(sec) { const n = Math.round(sec / 0.02); for (let i = 0; i < n; i++) { fakeNow = Math.max(fakeNow, last) + 20; frame(fakeNow, true); } }
@@ -1206,5 +1225,5 @@ if (inviteCode) show('joinScr'); else goMenu();
 
 // ganchos para testes
 window.__dt = { M, B, P, startMatch, NET, advance, predictBall, touch, aimFromDrag, commitShot, startToss, releaseServe, serveTarget, onTap, camera, debugCam,
-  freeze(on) { hitStopUntil = on ? Infinity : 0; },
+  freeze(on) { hitStopUntil = on ? Infinity : 0; }, renderer, perf,
   get simTime() { return simTime; } };

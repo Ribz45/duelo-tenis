@@ -158,7 +158,8 @@ export class Athlete {
     const rim = add(racket, new THREE.TorusGeometry(0.118, 0.011, 8, 30), M.frame, 0, -0.42, 0); rim.scale.set(1, 1.28, 1);
     const str = new THREE.Mesh(new THREE.CircleGeometry(0.114, 24), new THREE.MeshBasicMaterial({ map:strings(), transparent:true, opacity:0.55, side:THREE.DoubleSide, depthWrite:false }));
     str.position.y = -0.42; str.scale.set(1, 1.28, 1); racket.add(str);
-    root.traverse(o => { if (o.isMesh) o.receiveShadow = false; });
+    // só as peças grandes projetam sombra (menos trabalho por fotograma)
+    root.traverse(o => { if (o.isMesh) { o.receiveShadow = false; const r = o.geometry.boundingSphere || (o.geometry.computeBoundingSphere(), o.geometry.boundingSphere); if (r.radius < 0.06) o.castShadow = false; } });
     scene.add(root);
     this.cur = lerpPose(READY, READY, 0, {});
     this.tgt = lerpPose(READY, READY, 0, {});
