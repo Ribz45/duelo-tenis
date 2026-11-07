@@ -6,7 +6,7 @@ import { sfx, unlock } from './audio.js';
 // ---------------------------------------------------------------- constantes
 const HL = 11.885, HW = 4.115, DW = 5.485, SVC = 6.40, NET_H = 0.914, BR = 0.035, GRAV = 9.81;
 const STEP = 1 / 120, PLANE = 0.45, POINTS_TO_WIN = 10, RUN_SPEED = 6.2, WALK_SPEED = 2.4;
-const TOSS_Y0 = 1.3, TOSS_V = 5.4, T_IDEAL = 0.6, T_FAIL = 1.15;
+const TOSS_Y0 = 1.3, TOSS_V = 5.1, T_IDEAL = 0.56, T_FAIL = 1.05;   // contacto ideal a ≈2,6 m, onde a raquete chega
 const SURFACES = {
   hard:  { label:'Piso rápido', court:0x2f68b0, outer:0x3d8a5e, e:0.68, f:0.80 },
   clay:  { label:'Terra batida', court:0xc5653a, outer:0xb85a31, e:0.72, f:0.72 },
@@ -161,7 +161,7 @@ const sideOf = i => (i === 0 ? 1 : -1);
 const other = i => 1 - i;
 function newPlayer(idx) {
   return { idx, side:sideOf(idx), pos:{ x:0, z:sideOf(idx) * (HL + 0.5) }, mv:{ x:0, z:0 }, vel:{ x:0, z:0 }, target:null, walk:false,
-    isCPU:false, remote:false, netPos:null, swipe:null, prevD:null, crossT:null, whiff:false, act:null,
+    pp:{ x:0, z:sideOf(idx) * (HL + 0.5) }, isCPU:false, remote:false, netPos:null, swipe:null, prevD:null, crossT:null, whiff:false, act:null,
     incoming:null, incAt:-1, autoPlan:null, manualId:-1, ai:{ planId:-1, planAt:0, plan:null }, fig:null };
 }
 const P = [newPlayer(0), newPlayer(1)];
@@ -171,7 +171,7 @@ P[1].fig = new Athlete(scene, LOOK_PRESETS[1]);
 const M = { mode:'menu', me:0, level:1, surface:'hard', help:'normal', names:['Tu', 'CPU'], score:[0, 0], first:0, server:0,
   serveNum:1, phase:'idle', boxSign:-1, tourRound:0, pointsPlayed:0, wantRematch:false, remoteRematch:false,
   toss:null, lastWinner:-1, pointEndT:-9, tips:{}, counts:{} };
-const B = { p:new V3(0, 1, 0), v:new V3(), g:GRAV, bounces:0, hitter:-1, isServe:false, live:false, held:false, netHit:false, hitId:0 };
+const B = { p:new V3(0, 1, 0), pp:new V3(0, 1, 0), v:new V3(), g:GRAV, spin:0, bounces:0, hitter:-1, isServe:false, live:false, held:false, netHit:false, hitId:0 };
 let simTime = 0;
 const timers = [];
 const after = (sec, fn) => timers.push({ t:simTime + sec, fn });
@@ -207,24 +207,32 @@ function makeShot(from, tx, tz, speedH, g, margin) {
 }
 function predictBall(maxT = 3) {
   const out = [], p = B.p.clone(), v = B.v.clone(), S = SURFACES[M.surface], dt = 1 / 60;
-  let g = B.g, b = B.bounces;
+  let g = B.g, b = B.bounces, sp = B.spin;
   for (let t = dt; t <= maxT; t += dt) {
     v.y -= g * dt; p.addScaledVector(v, dt);
-    if (p.y < BR && v.y < 0) { p.y = BR; v.y = -v.y * S.e; v.x *= S.f; v.z *= S.f; g = GRAV; b++; if (b > 2) break; }
+    if (p.y < BR && v.y < 0) { p.y = BR; sp = bounceVel(v, sp, S); g = GRAV; b++; if (b > 2) break; }
     out.push({ x:p.x, y:p.y, z:p.z, vz:v.z, t, b });
   }
   return out;
 }
+// ressalto com efeito: o topspin salta mais e conserva velocidade; o efeito gasta-se no ressalto
+function bounceVel(v, spin, S) {
+  v.y = -v.y * (S.e + spin * 0.06);
+  const f = Math.min(0.95, S.f + spin * 0.07);
+  v.x *= f; v.z *= f;
+  return spin * 0.4;
+}
 const fhSide = (pl, x) => ((x ?? B.p.x) - pl.pos.x) * pl.side >= 0;
 
-function launch(idx, from, v, g, isServe, fromNet, q = 0.7) {
+function launch(idx, from, v, g, isServe, fromNet, q = 0.7, spin = 0.3) {
   const volley = !isServe && B.bounces === 0 && B.hitter >= 0;
   const fh = fhSide(P[idx], from.x);
-  B.p.copy(from); B.v.copy(v); B.g = g; B.bounces = 0; B.hitter = idx; B.isServe = isServe;
+  B.p.copy(from); B.pp.copy(from); B.v.copy(v); B.g = g; B.spin = spin; B.bounces = 0; B.hitter = idx; B.isServe = isServe;
   B.live = true; B.held = false; B.netHit = false; B.hitId++;
   M.phase = 'rally'; M.toss = null;
   for (const pl of P) { pl.prevD = null; pl.crossT = null; pl.whiff = false; pl.swipe = null; pl.incoming = null; pl.autoPlan = null; }
-  P[idx].act = { type:isServe ? 'sv' : volley ? (fh ? 'vf' : 'vb') : (fh ? 'fh' : 'bh'), t:0, phase:'swing' };
+  P[idx].act = { type:isServe ? 'sv' : volley ? (fh ? 'vf' : 'vb') : (fh ? 'fh' : 'bh'), t:0, phase:'swing',
+    h:isServe ? undefined : from.y, lat:Math.abs(from.x - P[idx].pos.x) };
   const speed = v.length(), strong = isServe ? speed > 41 : speed > 21.5;
   sfx.hit(clamp((speed - 8) / 30, 0, 1), camera.position.distanceTo(from), q >= 1);
   squash.t = 0; squash.k = 0.7; squash.axis.copy(v).normalize();
@@ -236,7 +244,7 @@ function launch(idx, from, v, g, isServe, fromNet, q = 0.7) {
     buzz(q >= 1 ? 30 : 14);
     if (H().recover && !isServe) { const me = P[idx]; me.target = { x:0, z:me.side * (HL + 0.5) }; me.walk = false; }
   } else M.lastMine = {};
-  if (M.mode === 'online' && idx === M.me && !fromNet) netSend({ t:'hit', p:[from.x, from.y, from.z], v:[v.x, v.y, v.z], g, s:isServe ? 1 : 0 });
+  if (M.mode === 'online' && idx === M.me && !fromNet) netSend({ t:'hit', p:[from.x, from.y, from.z], v:[v.x, v.y, v.z], g, s:isServe ? 1 : 0, sp:spin });
   landRing.material.opacity = 0;
   if (idx !== M.me && H().marker) {
     const fb = predictBall(3).find(s => s.b === 1);
@@ -261,7 +269,7 @@ function executeShot(idx, sh) {
   const tz = sh.tz + r * (gauss() * sig * 0.85 + (1 - q) * 0.35 * Math.random() * em);
   const margin = sh.margin ?? (spec.margin - Math.random() * (1 - q) * 0.9 * em - press * Math.random() * 0.2);
   const v = makeShot(from, tx, tz, spec.speedH, spec.g, margin);
-  launch(idx, from, v, spec.g, false, false, q);
+  launch(idx, from, v, spec.g, false, false, q, sh.type === 'lob' ? 0.2 : 0.35 + sh.power * 0.6);
   return v;
 }
 
@@ -297,7 +305,7 @@ function releaseServe(idx, aim) {
   const g = second ? GRAV + 7 : GRAV + 2;
   const margin = second ? 0.45 : 0.1 + (1 - q) * 0.15 - Math.random() * (1 - q) * 0.35;
   const v = makeShot(from, tx, tz, speed, g, margin);
-  launch(idx, from, v, g, true, false, q);
+  launch(idx, from, v, g, true, false, q, second ? 0.9 : 0.2);
   const kmh = Math.round(v.length() * 3.6);
   popText(kmh + ' km/h', 'info', new V3(pl.pos.x, 2.4, pl.pos.z));
   if (idx === M.me) {
@@ -322,7 +330,7 @@ function stepBall(dt) {
   }
   if (B.p.y < BR && B.v.y < 0) {
     const S = SURFACES[M.surface];
-    B.p.y = BR; B.v.y = -B.v.y * S.e; B.v.x *= S.f; B.v.z *= S.f; B.g = GRAV;
+    B.p.y = BR; B.spin = bounceVel(B.v, B.spin, S); B.g = GRAV;
     if (Math.abs(B.v.y) < 0.5) B.v.y = 0;
     B.bounces++;
     if (B.bounces <= 2) {
@@ -379,7 +387,7 @@ function resetForServe() {
   if (P[M.server].isCPU) after(1.3 + Math.random() * 0.7, cpuServe);
   updateHUD(); updateHint();
 }
-function placePlayer(i, x, z) { const p = P[i]; p.pos.x = x; p.pos.z = z; p.target = null; p.walk = false; p.mv.x = p.mv.z = 0; p.netPos = null; p.swipe = null; }
+function placePlayer(i, x, z) { const p = P[i]; p.pos.x = p.pp.x = x; p.pos.z = p.pp.z = z; p.target = null; p.walk = false; p.mv.x = p.mv.z = 0; p.netPos = null; p.swipe = null; }
 
 function endPoint(w, reason) {
   if (M.phase !== 'rally') return;
@@ -605,7 +613,7 @@ function updateAct(pl, dt) {
     const rem = inc.absT - simTime;
     if (rem < 0.6 && rem > -0.25) {
       const fh = (inc.x - pl.pos.x) * pl.side >= 0;
-      pl.act = { type:inc.b === 0 ? (fh ? 'vf' : 'vb') : (fh ? 'fh' : 'bh'), t:Math.min(-0.03, -rem), phase:'prep' };
+      pl.act = { type:inc.b === 0 ? (fh ? 'vf' : 'vb') : (fh ? 'fh' : 'bh'), t:Math.min(-0.03, -rem), phase:'prep', h:inc.y, lat:Math.abs(inc.x - pl.pos.x) };
       return;
     }
   }
@@ -990,7 +998,7 @@ function onNet(m) {
       if (M.phase === 'pointover') runTimers(true);
       const idx = other(M.me);
       if (P[idx].netPos) P[idx].pos.x = P[idx].netPos.x;
-      launch(idx, new V3(...m.p), new V3(...m.v), m.g, !!m.s, true);
+      launch(idx, new V3(...m.p), new V3(...m.v), m.g, !!m.s, true, 0.7, m.sp ?? 0.3);
       const lag = clamp(NET.rtt / 2, 0, 0.15);
       for (let t = 0; t < lag; t += STEP) stepBall(STEP);
       break;
@@ -1023,6 +1031,8 @@ $('bJoin').addEventListener('click', () => {
 function step(dt) {
   simTime += dt;
   runTimers(false);
+  B.pp.copy(B.p);
+  for (const pl of P) { pl.pp.x = pl.pos.x; pl.pp.z = pl.pos.z; }
   for (const pl of P) { updatePlayer(pl, dt); updateIncoming(pl); }
   if (M.toss) {
     const tt = simTime - M.toss.t0, sv = P[M.toss.idx], s = sv.side;
@@ -1033,12 +1043,14 @@ function step(dt) {
   if (B.live) stepBall(dt);
   if (B.live && M.phase === 'rally') for (const pl of P) contactCheck(pl);
 }
-let last = performance.now(), acc = 0, fakeNow = 0;
+let last = performance.now(), acc = 0, fakeNow = 0, alpha = 1;
+const _bp = new V3();
 function frame(now, manual) {
   const dt = clamp((now - last) / 1000, 0, 0.05); last = Math.max(last, now);
   if (inMatch() && M.phase !== 'over' && now >= hitStopUntil) {
     acc += dt;
     while (acc >= STEP) { step(STEP); acc -= STEP; }
+    alpha = acc / STEP;
     if (M.mode === 'online' && now - NET.lastPos > 66) { NET.lastPos = now; const me = P[M.me]; netSend({ t:'pos', x:+me.pos.x.toFixed(3), z:+me.pos.z.toFixed(3) }); }
   }
   if (B.held && M.phase === 'preserve') {
@@ -1048,15 +1060,17 @@ function frame(now, manual) {
   for (const pl of P) {
     if (!inMatch()) { pl.vel.x = pl.vel.z = 0; }
     updateAct(pl, dt);
-    pl.fig.update(dt, { x:pl.pos.x, z:pl.pos.z, vx:pl.vel.x, vz:pl.vel.z, side:pl.side,
+    const ix = pl.pp.x + (pl.pos.x - pl.pp.x) * alpha, iz = pl.pp.z + (pl.pos.z - pl.pp.z) * alpha;
+    pl.fig.update(dt, { x:ix, z:iz, vx:pl.vel.x, vz:pl.vel.z, side:pl.side,
       ball:inMatch() && (B.live || B.held || M.toss) ? B.p : null, act:pl.act, mode:figMode(pl) });
   }
   const showBall = inMatch() && (B.live || B.held || !!M.toss);
   ballMesh.visible = blob.visible = showBall;
   const bsp = B.live ? B.v.length() : 0;
-  ballMesh.position.copy(B.p);
+  const bp = B.held ? B.p : _bp.lerpVectors(B.pp, B.p, alpha);
+  ballMesh.position.copy(bp);
   // squash & stretch: estica com a velocidade, achata no impacto e no ressalto
-  const base = clamp(camera.position.distanceTo(B.p) / 13, 1, 2.6);
+  const base = clamp(camera.position.distanceTo(bp) / 13, 1, 2.6);
   squash.t += dt;
   let sy = 1 + clamp((bsp - 12) * 0.016, 0, 0.4), axis = bsp > 0.5 ? _dir.copy(B.v).normalize() : UP;
   if (squash.t < 0.09) { sy = 1 - (1 - squash.k) * Math.sin(squash.t / 0.09 * Math.PI); axis = squash.axis; }
@@ -1064,10 +1078,10 @@ function frame(now, manual) {
   ballMesh.quaternion.setFromUnitVectors(UP, axis);
   ballMesh.scale.set(base * sxz, base * sy, base * sxz);
   // sombra sempre visível: mais pequena e mais clara quando a bola sobe
-  blob.position.set(B.p.x, 0.005, B.p.z);
-  blob.scale.setScalar(base * clamp(1.15 - B.p.y * 0.09, 0.55, 1.15));
-  blob.material.opacity = clamp(0.5 - B.p.y * 0.06, 0.2, 0.5);
-  fx.updateTrail(B.p, bsp, B.live && showBall, camera);
+  blob.position.set(bp.x, 0.005, bp.z);
+  blob.scale.setScalar(base * clamp(1.15 - bp.y * 0.09, 0.55, 1.15));
+  blob.material.opacity = clamp(0.5 - bp.y * 0.06, 0.2, 0.5);
+  fx.updateTrail(bp, bsp, B.live && showBall, camera);
   fx.update(dt);
   tapRing.material.opacity = Math.max(0, tapRing.material.opacity - dt * 1.2);
   if (inMatch() && M.phase !== 'over') showAimVisuals(); else { aimRing.material.opacity = aimDot.material.opacity = 0; prevLine.visible = false; }

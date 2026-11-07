@@ -27,7 +27,7 @@ const FH_FOLLOW = P({ c:0.36, lean:0.2, twist:0.7, pyaw:0.25, hr:[0.2, 1.48, 0.2
 
 const BH_PREP = P({ c:0.5, lean:0.18, twist:0.85, pyaw:0.35, hr:[0.3, 1.15, -0.1], ra:[0.1, 0.55, -0.83], rf:[0.8, 0, 0.3], hg:1, pr:[-0.3, -1, 0.3] });
 const BH_DROP = P({ c:0.48, lean:0.2, twist:0.75, pyaw:0.3, hr:[0.32, 0.86, -0.1], ra:[0.2, -0.55, -0.8], rf:[0.3, 0, 0.95], hg:1, pr:[-0.3, -1, 0.3] });
-const BH_HIT = P({ c:0.42, lean:0.22, twist:0.2, pyaw:0.1, hr:[0.14, 0.98, 0.38], ra:[0.78, 0.08, 0.62], rf:[-0.1, 0.05, 1], hg:1, pr:[-0.5, -1, -0.2] });
+const BH_HIT = P({ c:0.42, lean:0.22, twist:0.2, pyaw:0.1, hr:[0.26, 0.98, 0.36], ra:[0.86, 0.08, 0.5], rf:[-0.1, 0.05, 1], hg:1, pr:[-0.5, -1, -0.2] });
 const BH_FOLLOW = P({ c:0.36, lean:0.2, twist:-0.7, pyaw:-0.25, hr:[-0.12, 1.45, 0.22], ra:[-0.45, 0.35, -0.82], rf:[-0.6, -0.2, 0.4], hg:1, pr:[-0.6, -1, -0.2] });
 
 const VF_PREP = P({ c:0.48, lean:0.28, twist:-0.5, pyaw:-0.2, hr:[-0.42, 1.2, 0.18], ra:[-0.3, 0.75, 0.4], rf:[0, 0, 1], hl:[0.12, 1.2, 0.45] });
@@ -94,6 +94,11 @@ const tmpQ = new THREE.Quaternion(), tmpQ2 = new THREE.Quaternion(), rootQinv = 
 const tmpM = new THREE.Matrix4(), rootInv = new THREE.Matrix4();
 const vA = new THREE.Vector3(), vB = new THREE.Vector3(), vC = new THREE.Vector3(), vT = new THREE.Vector3(), vP = new THREE.Vector3();
 const bX = new THREE.Vector3(), bY = new THREE.Vector3(), bZ = new THREE.Vector3();
+// temporários reutilizados (sem alocar memória a cada fotograma)
+const qPelvis = new THREE.Quaternion(), qChest = new THREE.Quaternion(), qChestInv = new THREE.Quaternion(), qA = new THREE.Quaternion(), qB = new THREE.Quaternion();
+const qFoot = new THREE.Quaternion(), eFoot = new THREE.Euler();
+const vRa = new THREE.Vector3(), vHr = new THREE.Vector3(), vHl = new THREE.Vector3(), vPr = new THREE.Vector3(), vPl = new THREE.Vector3(), vRf = new THREE.Vector3();
+const d1 = new THREE.Vector3(), d2 = new THREE.Vector3(), vGrip = new THREE.Vector3();
 
 export class Athlete {
   constructor(scene, look) {
@@ -176,7 +181,10 @@ export class Athlete {
 
     // pose alvo
     const tg = this.tgt;
-    if (s.act && TRACKS[s.act.type]) sampleTrack(TRACKS[s.act.type], s.act.t, tg);
+    if (s.act && TRACKS[s.act.type]) {
+      sampleTrack(TRACKS[s.act.type], s.act.t, tg);
+      if (s.act.h !== undefined) tg.c = Math.min(0.8, tg.c + clamp(0.95 - s.act.h, 0, 0.4) * 0.9 * Math.exp(-((s.act.t / 0.25) ** 2)));
+    }
     else {
       const base = s.mode === 'serve' ? SV_IDLE : s.mode === 'happy' ? HAPPY : s.mode === 'sad' ? SAD : s.mode === 'walk' ? WALK : READY;
       lerpPose(base, base, 0, tg);
@@ -207,7 +215,7 @@ export class Athlete {
 
     // pernas
     const stanceW = 0.12 + cu.c * 0.12, fy = pyaw * 0.55, cf = Math.cos(fy), sf = Math.sin(fy);
-    const pelvisQ = this.pelvis.getWorldQuaternion(new THREE.Quaternion()).premultiply(rootQinv);
+    const pelvisQ = this.pelvis.getWorldQuaternion(qPelvis).premultiply(rootQinv);
     const pelvisQinv = tmpQ2.copy(pelvisQ).invert();
     for (const L of this.legs) {
       const ph = this.gait + (L.sx > 0 ? 0 : Math.PI);
@@ -222,22 +230,27 @@ export class Athlete {
       vB.applyQuaternion(pelvisQinv); L.hip.quaternion.setFromUnitVectors(DOWN, vB);
       const hq = tmpQ.copy(pelvisQ).multiply(L.hip.quaternion).invert();
       vC.applyQuaternion(hq); L.knee.quaternion.setFromUnitVectors(DOWN, vC);
-      const fq = new THREE.Quaternion().setFromEuler(new THREE.Euler(moving ? -Math.max(0, Math.cos(ph)) * 0.3 : 0, fy, 0));
-      L.ankle.quaternion.copy(pelvisQ).multiply(L.hip.quaternion).multiply(L.knee.quaternion).invert().multiply(fq);
+      qFoot.setFromEuler(eFoot.set(moving ? -Math.max(0, Math.cos(ph)) * 0.3 : 0, fy, 0));
+      L.ankle.quaternion.copy(pelvisQ).multiply(L.hip.quaternion).multiply(L.knee.quaternion).invert().multiply(qFoot);
     }
 
     // braços
     root.updateMatrixWorld(true);
-    const chestQ = this.chest.getWorldQuaternion(new THREE.Quaternion()).premultiply(rootQinv);
-    const chestQinv = chestQ.clone().invert();
+    const chestQ = this.chest.getWorldQuaternion(qChest).premultiply(rootQinv);
+    const chestQinv = qChestInv.copy(chestQ).invert();
     const R = this.arms[1], Lf = this.arms[0];
-    const ra = vA.fromArray(cu.ra).normalize().clone();
-    const hr = new THREE.Vector3().fromArray(cu.hr);
-    let hl = new THREE.Vector3().fromArray(cu.hl);
-    if (cu.hg > 0.01) { const grip = hr.clone().addScaledVector(ra, 0.13); hl.lerp(grip, cu.hg); }
+    const ra = vRa.fromArray(cu.ra).normalize();
+    const hr = vHr.fromArray(cu.hr);
+    if (s.act && s.act.h !== undefined) {           // ajusta a mão à altura e distância reais da bola no contacto
+      const w = Math.exp(-(s.act.t / 0.2) * (s.act.t / 0.2)), fh = s.act.type === 'fh' || s.act.type === 'vf';
+      hr.y += clamp(s.act.h - 0.98, -0.45, 0.6) * 1.0 * w;
+      hr.x += (fh ? -1 : 1) * clamp((s.act.lat ?? 0.72) - 0.72, -0.4, 0.5) * 1.0 * w;
+    }
+    const hl = vHl.fromArray(cu.hl);
+    if (cu.hg > 0.01) hl.lerp(vGrip.copy(hr).addScaledVector(ra, 0.13), cu.hg);
     if (!s.act && moving && cu.hg < 0.5) hl.z += Math.sin(this.gait) * 0.22 * Math.min(1, sp / 4);
-    this.solveArm(R, hr, new THREE.Vector3().fromArray(cu.pr), chestQ, chestQinv, ra, new THREE.Vector3().fromArray(cu.rf));
-    this.solveArm(Lf, hl, new THREE.Vector3().fromArray(cu.pl), chestQ, chestQinv, null, null);
+    this.solveArm(R, hr, vPr.fromArray(cu.pr), chestQ, chestQinv, ra, vRf.fromArray(cu.rf));
+    this.solveArm(Lf, hl, vPl.fromArray(cu.pl), chestQ, chestQinv, null, null);
 
     // cabeça segue a bola
     let wantY = 0, wantP = 0.15;
@@ -257,11 +270,10 @@ export class Athlete {
 
   solveArm(A, target, pole, chestQ, chestQinv, axis, face) {
     A.sh.getWorldPosition(vB).applyMatrix4(rootInv);
-    const d1 = new THREE.Vector3(), d2 = new THREE.Vector3();
     ik2(vB, target, UPPER, FORE, pole.normalize(), d1, d2);
     d1.applyQuaternion(chestQinv); A.sh.quaternion.setFromUnitVectors(DOWN, d1);
-    const q1 = chestQ.clone().multiply(A.sh.quaternion);
-    d2.applyQuaternion(q1.clone().invert()); A.el.quaternion.setFromUnitVectors(DOWN, d2);
+    const q1 = qA.copy(chestQ).multiply(A.sh.quaternion);
+    d2.applyQuaternion(qB.copy(q1).invert()); A.el.quaternion.setFromUnitVectors(DOWN, d2);
     const q2 = q1.multiply(A.el.quaternion);
     if (axis) {
       bY.copy(axis).negate();
