@@ -1,9 +1,9 @@
 import * as THREE from './vendor/three.module.min.js';
-import { Athlete, LOOK_PRESETS, TRACK_END } from './player3d.js?v=5';
-import { FX } from './fx.js?v=5';
-import { RealAthlete, loadAthleteAssets } from './athlete-gltf.js?v=5';
-import { sfx, unlock } from './audio.js?v=5';
-import { HL, HW, SVC, BR, serverFor, servePositions as rulePositions, judgeFirstBounce, isMatchOver, matchPointFor, outBy } from './rules.js?v=5';
+import { Athlete, LOOK_PRESETS, TRACK_END } from './player3d.js?v=6';
+import { FX } from './fx.js?v=6';
+import { RealAthlete, loadAthleteAssets } from './athlete-gltf.js?v=6';
+import { sfx, unlock } from './audio.js?v=6';
+import { HL, HW, SVC, BR, serverFor, servePositions as rulePositions, judgeFirstBounce, isMatchOver, matchPointFor, outBy } from './rules.js?v=6';
 
 // ---------------------------------------------------------------- constantes
 const DW = 5.485, NET_H = 0.914, GRAV = 9.81;
@@ -739,7 +739,7 @@ function resize() {
   camera.fov = clamp(2 * Math.atan(Math.tan(21 * Math.PI / 180) / a) * 180 / Math.PI, 46, 74);
   // vertical: de 21:9 (a≈0,43) a 16:9 (a≈0,56) o ponto de mira aproxima-se para o jogador não ficar atrás das barras
   if (a < 0.8) Object.assign(CAM, { h:10.8 + clamp(a - 0.46, 0, 0.3) * 6, back:9.8, look:0.6 - clamp(a - 0.46, -0.05, 0.3) * 13 });
-  else Object.assign(CAM, { h:7.5, back:9.5, look:3.5 });
+  else Object.assign(CAM, { h:10, back:11, look:-2.2 });     // horizontal (PC ou telemóvel rodado): jogador acima das barras
   camera.updateProjectionMatrix();
 }
 addEventListener('resize', resize); resize();
