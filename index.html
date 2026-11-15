@@ -111,7 +111,10 @@
     font-family:var(--cond); font-weight:700; font-size:12px; letter-spacing:.1em; text-transform:uppercase; }
   #quit { position:fixed; top:calc(var(--st) + 10px); right:calc(var(--sr) + 10px); z-index:6; width:44px; height:44px; min-height:44px; padding:0; border-radius:50%;
     background:rgba(7,21,43,.9); box-shadow:none; }
-  #quit svg.i { width:20px; height:20px; }
+  #quit svg.i, #camBtn svg.i { width:20px; height:20px; }
+  #camBtn { position:fixed; top:calc(var(--st) + 10px); right:calc(var(--sr) + 62px); z-index:6; width:44px; height:44px; min-height:44px; padding:0; border-radius:50%;
+    background:rgba(7,21,43,.9); box-shadow:none; }
+  #camBtn.on { background:var(--ball); color:var(--navy-900); }
 
   /* faixa de resultado do ponto (estilo TV) */
   #toast { position:fixed; left:0; top:38%; z-index:6; pointer-events:none; display:flex; flex-direction:column; gap:2px;
@@ -128,9 +131,15 @@
   #coach { position:fixed; left:calc(var(--sl) + 10px); right:calc(var(--sr) + 10px); top:calc(var(--st) + 122px); z-index:6; pointer-events:none; display:flex; justify-content:center;
     opacity:0; transform:translateY(-8px); transition:opacity .3s var(--ease), transform .3s var(--ease); }
   #coach.show { opacity:1; transform:none; }
-  #coach span { max-width:420px; background:rgba(7,21,43,.95); border:1px solid var(--line); padding:10px 12px; border-radius:10px; font-size:14.5px; line-height:1.4; box-shadow:0 6px 18px rgba(0,0,0,.3); }
-  #coach span::before { content:'Treinador'; display:inline-block; margin-right:8px; padding:2px 6px; border-radius:4px; background:var(--ball); color:var(--navy-900);
+  #coach .cc { position:relative; max-width:420px; background:rgba(7,21,43,.95); border:1px solid var(--line); padding:10px 46px 8px 12px; border-radius:10px; box-shadow:0 6px 18px rgba(0,0,0,.3); }
+  #coach.show .cc { pointer-events:auto; }
+  #coach .ct { display:block; font-size:14.5px; line-height:1.4; }
+  #coach .ct::before { content:'Treinador'; display:inline-block; margin-right:8px; padding:2px 6px; border-radius:4px; background:var(--ball); color:var(--navy-900);
     font-family:var(--cond); font-weight:700; font-size:12px; letter-spacing:.08em; text-transform:uppercase; vertical-align:1px; }
+  #coach #coachOff { display:inline-flex; width:auto; min-height:36px; margin:6px 0 0 -6px; padding:0 8px; background:none; box-shadow:none; border:0;
+    color:var(--ball); font-size:13px; font-weight:700; text-decoration:underline; text-underline-offset:3px; }
+  #coach #coachX { position:absolute; top:4px; right:4px; width:40px; height:40px; min-height:40px; padding:0; border-radius:50%; background:rgba(255,255,255,.08); box-shadow:none; border:0; }
+  #coach #coachX svg.i { width:16px; height:16px; margin:0; }
 
   #pops { position:fixed; inset:0; pointer-events:none; z-index:6; overflow:hidden; }
   .pop { position:absolute; left:0; top:0; font-family:var(--cond); font-weight:800; font-style:italic; font-size:22px; letter-spacing:.02em; text-transform:uppercase;
@@ -150,7 +159,7 @@
   .fade-out { opacity:0 !important; }
   /* ecrãs mais baixos (16:9): painéis mais compactos */
   @media (max-height:720px) {
-    #coach { top:calc(var(--st) + 116px); } #coach span { font-size:13.5px; padding:8px 10px; }
+    #coach { top:calc(var(--st) + 116px); } #coach .ct { font-size:13.5px; } #coach .cc { padding:8px 44px 6px 10px; }
     #hint span { padding:6px 12px; font-size:13.5px; }
     .wordmark { font-size:52px; } .card { gap:10px; } .panel { padding:10px; gap:8px; }
   }
@@ -170,6 +179,7 @@
   <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 18l1.5-4A7.5 7.5 0 1 1 9 18.6L4 18z"/></symbol>
   <symbol id="i-install" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19h14"/></symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"/></symbol>
+  <symbol id="i-cam" viewBox="0 0 24 24"><path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13.5" r="3.5"/></symbol>
   <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></symbol>
 </svg>
 <canvas id="c"></canvas>
@@ -181,9 +191,10 @@
   </div>
   <span class="tag" id="tag">Tie-break · 10 pontos</span>
 </div>
+<button id="camBtn" class="hidden" type="button" aria-label="Mudar câmara"><svg class="i"><use href="#i-cam"/></svg></button>
 <button id="quit" class="hidden" aria-label="Sair do jogo"><svg class="i"><use href="#i-x"/></svg></button>
 <div id="toast"><div class="b-title"></div><div class="b-sub"></div></div>
-<div id="coach"><span></span></div>
+<div id="coach"><div class="cc"><span class="ct"></span><button id="coachOff" type="button">Já sei jogar · desligar dicas</button><button id="coachX" type="button" aria-label="Fechar dica"><svg class="i"><use href="#i-x"/></svg></button></div></div>
 <div id="pops"></div>
 <div id="aimLbl"></div>
 <div id="hint" class="hidden"><span></span></div>
@@ -206,11 +217,13 @@
       <div class="seg" id="segSurf"><button data-v="hard">Rápido</button><button data-v="clay">Terra</button><button data-v="grass">Relva</button></div>
       <div class="field-l">Ajudas</div>
       <div class="seg" id="segHelp"><button data-v="total">Total</button><button data-v="normal">Normal</button><button data-v="pro">Pro</button></div>
+      <div class="field-l">Dicas do treinador</div>
+      <div class="seg" id="segCoach"><button data-v="on">Ligadas</button><button data-v="off">Desligadas</button></div>
     </div>
     <div class="panel howto">
       <div><svg class="i"><use href="#i-tap"/></svg><span><b>Toca</b> no campo para correr</span></div>
-      <div><svg class="i"><use href="#i-drag"/></svg><span><b>Arrasta</b> para apontar: ↑ topspin · ↓ curto amorti · ↓ longo balão</span></div>
-      <div><svg class="i"><use href="#i-release"/></svg><span><b>Larga</b> quando o anel branco fechar sobre o verde. <b>Serviço:</b> aponta, solta para lançar, toca no verde</span></div>
+      <div><svg class="i"><use href="#i-drag"/></svg><span><b>Desliza</b> (swipe) com a bola à tua frente: ↑ topspin · ↓ curto amorti · ↓ longo balão</span></div>
+      <div><svg class="i"><use href="#i-release"/></svg><span><b>Serviço:</b> toca para lançar a bola e desliza ↑ no ponto mais alto. O ângulo escolhe o lado</span></div>
     </div>
     <div class="row2" id="appRow">
       <button id="bInstall" class="hidden"><svg class="i"><use href="#i-install"/></svg>Instalar app</button>
@@ -243,7 +256,7 @@
     <p class="muted" id="joinStatus"></p>
     <div class="panel howto">
       <div><svg class="i"><use href="#i-tap"/></svg><span><b>Toca</b> no campo para correr</span></div>
-      <div><svg class="i"><use href="#i-drag"/></svg><span><b>Arrasta</b> para apontar e <b>larga</b> quando o anel fechar</span></div>
+      <div><svg class="i"><use href="#i-drag"/></svg><span><b>Desliza</b> (swipe) para bater quando a bola chegar</span></div>
     </div>
     <button class="ghost" data-back>Ir para o menu</button>
   </div>

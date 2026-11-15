@@ -20,9 +20,9 @@ const LEVELS = [
   { label:'Difícil', q:0.84, speed:6.0, react:0.16, pow:[0.55, 0.9], width:3.5, depth:[8.4, 11.0], svSig:0.05, svPow:0.9,  miss:0.08 },
 ];
 const HELPS = {
-  total:  { label:'Total',  green:0.085, auto:true,  recover:true,  assist:99,  preview:true,  marker:true,  err:0.65, reach:1.9 },
-  normal: { label:'Normal', green:0.06, auto:false, recover:false, assist:4.5, preview:true,  marker:true,  err:1.0,  reach:1.65 },
-  pro:    { label:'Pro',    green:0.045, auto:false, recover:false, assist:0,   preview:false, marker:false, err:1.12, reach:1.5 },
+  total:  { label:'Total',  green:0.09, auto:true,  recover:true,  drift:1, magnet:3, fine:1.6, preview:true,  marker:true,  err:0.65, reach:1.9 },
+  normal: { label:'Normal', green:0.065, auto:false, recover:false, drift:0.5, magnet:2.4, fine:1.1, preview:true,  marker:true,  err:1.0,  reach:1.65 },
+  pro:    { label:'Pro',    green:0.05, auto:false, recover:false, drift:0.35, magnet:0, fine:0.45, preview:false, marker:false, err:1.12, reach:1.5 },
 };
 const TOUR = [
   { round:'Quartos-de-final', opp:'Tiago Rocha',   level:0, surface:'clay',  look:2 },
@@ -213,9 +213,9 @@ function buildCourt(key) {
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { adTex = adCanvas(); const k = courtKey; courtKey = null; if (k) buildCourt(k); });
 
 // bola, sombra, rasto, marcadores, mira e trajetória
-const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(0.06, 16, 12), new THREE.MeshStandardMaterial({ color:0xd9f53c, emissive:0x3a4a00, roughness:0.6 }));
+const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(0.042, 16, 12), new THREE.MeshStandardMaterial({ color:0xd9f53c, emissive:0x3a4a00, roughness:0.6 }));
 scene.add(ballMesh);
-const blob = new THREE.Mesh(new THREE.CircleGeometry(0.11, 20), new THREE.MeshBasicMaterial({ color:0x000000, transparent:true, opacity:0.35, depthWrite:false }));
+const blob = new THREE.Mesh(new THREE.CircleGeometry(0.075, 20), new THREE.MeshBasicMaterial({ color:0x000000, transparent:true, opacity:0.35, depthWrite:false }));
 blob.rotation.x = -Math.PI / 2; blob.renderOrder = 3; scene.add(blob);
 const fx = new FX(scene);
 const UP = new V3(0, 1, 0), _dir = new V3();
@@ -229,13 +229,14 @@ const tapRing = ringMesh(0xffffff, 0.28, 0.36);
 const landRing = ringMesh(0xd7f34a, 0.16, 0.26);
 const aimRing = ringMesh(0xffffff, 0.86, 1.0);
 const aimDot = ringMesh(0xffffff, 0, 0.09);
-const tmTarget = ringMesh(0x2fbf71, 0.3, 0.37);
-const tmApproach = ringMesh(0xffffff, 0.31, 0.355);
-function faceRing(color) {
-  const m = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.0, 40), new THREE.MeshBasicMaterial({ color, transparent:true, opacity:0, depthWrite:false, depthTest:false }));
-  m.renderOrder = 5; scene.add(m); return m;
-}
-const svTarget = faceRing(0x2fbf71), svApproach = faceRing(0xffffff);
+// brilho suave na bola no instante ideal do swipe (só nas ajudas Total e Normal)
+const haloTex = canvasTex(64, 64, (g, w, h) => {
+  const gr = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+  gr.addColorStop(0, 'rgba(255,255,235,1)'); gr.addColorStop(0.35, 'rgba(235,255,150,.55)'); gr.addColorStop(1, 'rgba(235,255,150,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, w, h);
+});
+const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map:haloTex, transparent:true, opacity:0, depthWrite:false, blending:THREE.AdditiveBlending }));
+halo.renderOrder = 4; scene.add(halo);
 const PREV_N = 30;
 const prevGeo = new THREE.BufferGeometry(); prevGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(PREV_N * 3), 3));
 const prevLine = new THREE.Line(prevGeo, new THREE.LineDashedMaterial({ color:0xffffff, dashSize:0.3, gapSize:0.2, transparent:true, opacity:0.85 }));
@@ -276,8 +277,8 @@ const authority = () => M.mode !== 'online' || (B.hitter >= 0 && other(B.hitter)
 const H = () => HELPS[M.help] || HELPS.normal;
 const errMul = idx => (M.mode === 'online' || idx !== M.me) ? 1 : H().err;
 const greenWin = () => (M.mode === 'online' ? HELPS.normal.green : H().green);
-const reachOf = pl => (pl.isCPU || pl.remote || M.mode === 'online') ? 1.6 : H().reach;
-// dentro do verde = perfeito (pancada vencedora possível); logo a seguir "Bom"; depois cai depressa
+const reachOf = pl => ((pl.isCPU || pl.remote || M.mode === 'online') ? 1.6 : H().reach) + (B.isServe ? 0.25 : 0);   // na resposta ao serviço estica-se mais
+// dentro da janela ideal = perfeito (pancada vencedora possível); logo a seguir "Bom"; depois cai depressa
 function timingQ(err, g) { const a = Math.abs(err); return a <= g ? 1 : clamp(0.88 - (a - g) / 0.22, 0, 0.88); }
 function timingLabel(q, err) { if (q >= 1) return 'Perfeito'; if (q >= 0.6) return 'Bom'; if (q >= 0.3) return err < 0 ? 'Cedo' : 'Tarde'; return err < 0 ? 'Muito cedo' : 'Muito tarde'; }
 const tossY = t => TOSS_Y0 + TOSS_V * t - 0.5 * GRAV * t * t;
@@ -391,7 +392,7 @@ function executeShot(idx, sh) {
   return v;
 }
 
-// ---------------------------------------------------------------- serviço: lançar, apontar, largar no verde
+// ---------------------------------------------------------------- serviço: tocar para lançar, swipe para servir
 function serveTarget(idx, ax, ad) {
   const s = sideOf(idx), r = -s;
   return { tx:M.boxSign * HW / 2 + s * ax * HW * 0.42, tz:r * SVC * (0.45 + 0.5 * ad), ax, ad };
@@ -405,21 +406,21 @@ function startToss(idx, cpuAim) {
 }
 function failToss() {
   const idx = M.toss.idx; M.toss = null; B.held = true;
-  if (idx === M.me) { toast('Lança outra vez', 'info', 'Toca quando o anel da bola ficar verde', 1100); touch.mode = null; }
+  if (idx === M.me) { toast('Lança outra vez', 'info', 'Desliza para cima quando a bola estiver lá em cima', 1200); touch.mode = null; touch.aim = null; }
   else if (P[idx].isCPU) after(0.8, cpuServe);
 }
 function releaseServe(idx, aim) {
   if (!M.toss || M.toss.idx !== idx || M.phase !== 'preserve') return;
   const tt = simTime - M.toss.t0;
-  if (tt < 0.28) { M.toss = null; B.held = true; if (idx === M.me) toast('Cedo demais', 'info', 'Espera que a bola suba até ao anel verde', 1000); return; }
+  if (tt < 0.28) { M.toss = null; B.held = true; if (idx === M.me) toast('Cedo demais', 'info', 'Toca para lançar e desliza quando a bola estiver no ponto mais alto', 1300); return; }
   const err = tt - T_IDEAL, q = timingQ(err, greenWin());
   const pl = P[idx], s = pl.side, r = -s, second = M.serveNum === 2;
   const from = new V3(pl.pos.x - s * 0.1, tossY(tt), pl.pos.z - s * 0.35);
-  const sig = (0.07 + (1 - q) * 0.75) * (second ? 0.55 : 1) * errMul(idx);
+  const sig = (0.09 + (1 - q) * 0.75 + (second ? 0 : aim.ad * 0.08)) * (second ? 0.55 : 1) * errMul(idx);
   const tx = aim.tx + gauss() * sig;
   const tz = aim.tz + r * (gauss() * sig + (1 - q) * 0.3 * (Math.random() - 0.3));
-  const lvl = pl.isCPU ? 0.62 + 0.3 * LEVELS[M.level].svPow : 1;
-  const speed = (second ? 20 + q * 6 : 25 + q * 17 + aim.ad * 1.5) * lvl;
+  const lvl = pl.isCPU ? 0.72 + 0.3 * LEVELS[M.level].svPow : 1;
+  const speed = (second ? 20 + q * 6 : 23 + q * 12 + aim.ad * 4) * lvl;
   const g = second ? GRAV + 7 : GRAV + 2;
   const margin = second ? 0.45 : 0.1 + (1 - q) * 0.15 - Math.random() * (1 - q) * 0.35;
   const v = makeShot(from, tx, tz, speed, g, margin);
@@ -508,8 +509,8 @@ function endPoint(w, reason) {
 function applyPoint(w, reason) {
   timers.length = 0;
   const myShotErr = B.hitter === M.me && w !== M.me;
-  if (myShotErr && reason === 'Fora!') countTip('out', 2, 'Bolas fortes e perto das linhas saem mais. Arrasta menos para cima ou aponta mais para dentro do campo.');
-  if (myShotErr && reason === 'Rede!') countTip('net', 1, 'Bateste na rede. Larga no verde e evita bolas curtas e fortes: arrasta mais para cima para dar altura.');
+  if (myShotErr && reason === 'Fora!') countTip('out', 2, 'Bolas fortes e perto das linhas saem mais. Faz um swipe mais curto ou mais a direito para o meio do campo.');
+  if (myShotErr && reason === 'Rede!') countTip('net', 1, 'Bateste na rede. Faz o swipe com a bola à tua frente: cedo ou tarde demais a bola sai baixa.');
   if (reason === 'Ponto!' && w !== M.me && B.hitter !== M.me && !P[M.me].swipe) countTip('move', 2, 'Toca no sítio para onde queres correr. A mancha amarela mostra onde a bola vai bater.');
   M.phase = 'pointover'; M.score[w]++; M.pointsPlayed++;
   M.lastWinner = w; M.pointEndT = simTime; M.toss = null;
@@ -540,14 +541,14 @@ function explainWin(reason) {
 }
 function explainLoss(reason) {
   const L = M.lastMine || {}, mineShot = B.hitter === M.me;
-  const timing = L.q !== undefined && L.q < 0.65 ? (L.err < 0 ? 'largaste cedo' : 'largaste tarde') : null;
+  const timing = L.q !== undefined && L.q < 0.65 ? (L.err < 0 ? 'swipe cedo' : 'swipe tarde') : null;
   if (reason === 'Fora!' && mineShot) {
     const where = Math.abs(B.p.z) > HL ? 'Bola longa' : 'Bola larga';
     return where + ' · ' + (timing || (L.power > 0.8 ? 'potência a mais' : 'arriscaste perto da linha'));
   }
-  if (reason === 'Rede!' && mineShot) return 'Na rede · ' + (timing || 'bola baixa e forte: arrasta mais para cima');
+  if (reason === 'Rede!' && mineShot) return 'Na rede · ' + (timing || 'bola baixa e forte: swipe mais curto');
   if (reason === 'Ás!') return 'Não devolveste o serviço';
-  if (reason === 'Dupla falta') return 'Dupla falta · no 2.º serviço larga no verde';
+  if (reason === 'Dupla falta') return 'Dupla falta · no 2.º serviço joga mais seguro';
   if (reason === 'Ponto!') return L.whiff ? L.whiff : 'Não chegaste à bola · toca para correr';
   return 'Ponto para ' + M.names[other(M.me)];
 }
@@ -577,7 +578,7 @@ function applyFault(reason) {
     timers.length = 0;
     M.serveNum = 2; M.phase = 'pointover'; M.lastWinner = -1; landRing.material.opacity = 0;
     toast(reason, 'info', '2.º serviço', 900);
-    if (M.server === M.me) countTip('serve', 2, 'No serviço, toca quando o anel à volta da bola fechar e ficar verde. Aponta mais para dentro da caixa no 2.º serviço.');
+    if (M.server === M.me) countTip('serve', 2, 'No serviço, faz o swipe quando a bola está no ponto mais alto. Um swipe mais curto e a direito entra mais vezes.');
     after(1.2, resetForServe);
   } else {
     M.phase = 'rally';
@@ -591,7 +592,7 @@ function reachable(pl) { return legalFor(pl) && Math.abs(B.p.x - pl.pos.x) <= re
 function whiff(pl, msg) {
   pl.act = { type:fhSide(pl) ? 'fh' : 'bh', t:0, phase:'swing' }; pl.whiff = true;
   if (pl.idx === M.me && msg) {
-    M.lastMine = { whiff:msg + (msg === 'Fora de alcance' ? ' · toca para correr até à bola' : ' · larga no verde') };
+    M.lastMine = { whiff:msg + (msg === 'Fora de alcance' ? ' · toca para correr até à bola' : ' · faz o swipe com a bola à tua frente') };
     popText(msg, 'bad', new V3(pl.pos.x, 1.9, pl.pos.z));
   }
 }
@@ -609,14 +610,14 @@ function contactCheck(pl) {
     pl.crossT = simTime;
     if (pl.isCPU) { cpuTryHit(pl); return; }
     if (pl.swipe) { const sw = pl.swipe; pl.swipe = null; tryHit(pl, sw, -(simTime - sw.t)); return; }
-    if (pl.idx === M.me && touch.mode === 'aim' && H().auto && touch.aim) { commitShot(); const sw = pl.swipe; pl.swipe = null; tryHit(pl, sw, 0.09); return; }
+    if (pl.idx === M.me && touch.mode === 'swipe' && H().auto && touch.aim) { commitShot(touch.aim); const sw = pl.swipe; pl.swipe = null; tryHit(pl, sw, 0.09); return; }
   }
   if (!pl.isCPU && pl.swipe && pl.crossT !== null && d <= 0) {
     const late = simTime - pl.crossT, sw = pl.swipe; pl.swipe = null;
     if (late <= 0.3) tryHit(pl, sw, late); else { whiff(pl, 'Tarde demais'); countTip('timing', 2, TIP_TIMING); }
   }
 }
-const TIP_TIMING = 'Larga o dedo quando o anel branco fechar sobre o anel verde, junto aos teus pés. No verde a pancada sai perfeita e muito mais forte.';
+const TIP_TIMING = 'Faz o swipe quando a bola chega à tua frente, à altura da cintura. Com o tempo certo a pancada sai perfeita e muito mais forte.';
 function tryHit(pl, sw, err) {
   if (!reachable(pl)) { whiff(pl, 'Fora de alcance'); countTip('reach', 1, 'Toca no campo para correres até à bola, ou liga a Ajuda Total no menu.'); return; }
   const volley = B.bounces === 0;
@@ -656,15 +657,31 @@ function planIntercept(pl, speed, delay) {
   const fb = samples.find(q => q.b === 1);
   return fb ? { x:fb.x - s * 0.72, z:fb.z + s * 3 } : null;
 }
+// movimento assistido: assim que a bola vem, o jogador arranca sozinho e faz parte do caminho
+// (Normal ≈ metade); o resto é contigo — um toque perto do sítio certo chega, e o fim é afinado sozinho.
 function humanAuto(pl) {
   const h = H();
   if (M.phase === 'rally' && B.live && !B.netHit && B.hitter >= 0 && B.hitter !== pl.idx) {
-    if (!pl.autoPlan || pl.autoPlan.id !== B.hitId || simTime - pl.autoPlan.at > 0.25) pl.autoPlan = { id:B.hitId, at:simTime, p:planIntercept(pl, RUN_SPEED, 0.05) };
-    const p = pl.autoPlan.p; if (!p) return;
-    const d = Math.hypot(p.x - pl.pos.x, p.z - pl.pos.z);
+    if (!pl.autoPlan || pl.autoPlan.id !== B.hitId) pl.autoPlan = { id:B.hitId, at:-9, p:null, t0:simTime, start:{ x:pl.pos.x, z:pl.pos.z } };
+    const ap = pl.autoPlan;
+    if (simTime - ap.at > 0.25) { ap.at = simTime; ap.p = planIntercept(pl, RUN_SPEED, 0.05); }
+    const p = ap.p; if (!p) return;
     const manual = pl.manualId === B.hitId;
-    if ((h.auto && !manual) || (!manual && d < h.assist) || (manual && !pl.target && d < Math.min(1.2, h.assist))) { pl.target = { x:p.x, z:p.z }; pl.walk = false; }
+    if (!manual) {
+      if (simTime - ap.t0 < 0.1) return;                                         // tempo de reação
+      const k = h.auto ? 1 : h.drift;
+      pl.target = { x:ap.start.x + (p.x - ap.start.x) * k, z:ap.start.z + (p.z - ap.start.z) * k }; pl.walk = false;
+    } else if (!pl.target && Math.hypot(p.x - pl.pos.x, p.z - pl.pos.z) < h.fine) { pl.target = { x:p.x, z:p.z }; pl.walk = false; }
   }
+}
+// o toque não precisa de ser exato: perto do sítio ideal, o destino é puxado para lá
+function magnetTap(pl, x, z) {
+  const h = H(), p = pl.autoPlan && pl.autoPlan.id === B.hitId ? pl.autoPlan.p : null;
+  if (!p || !h.magnet) return { x, z };
+  const d = Math.hypot(p.x - x, p.z - z);
+  if (d > h.magnet) return { x, z };
+  const k = 0.55 * (1 - d / h.magnet) + 0.25;
+  return { x:x + (p.x - x) * k, z:z + (p.z - z) * k };
 }
 
 // ---------------------------------------------------------------- CPU
@@ -678,7 +695,7 @@ function cpuUpdate(pl) {
   if (M.phase === 'rally' && B.live && !B.netHit && B.hitter >= 0 && B.hitter !== pl.idx) {
     if (ai.planId !== B.hitId) {
       const k = 1 - L.q, misread = Math.random() < 0.25 * k;
-      ai.planId = B.hitId; ai.planAt = simTime + L.react + Math.abs(gauss()) * 0.06; ai.plan = null; ai.fixed = false;
+      ai.planId = B.hitId; ai.planAt = simTime + L.react * (B.isServe ? 0.6 : 1) + Math.abs(gauss()) * 0.06; ai.plan = null; ai.fixed = false;
       ai.err = { x:gauss() * 0.35 * k + (misread ? Math.sign(gauss()) * rand(0.5, 0.9) : 0), z:gauss() * 0.5 * k };
     }
     if (simTime >= ai.planAt && (!ai.plan || (!ai.fixed && simTime >= ai.planAt + 0.35))) {
@@ -766,86 +783,114 @@ function figMode(pl) {
 }
 
 // ---------------------------------------------------------------- câmara
+// duas câmaras: "TV" (alta, campo todo) e "Perto" (atrás e acima do jogador, segue-o — mais perto da ação)
 const CAM = { h:10.5, back:8.5, look:2.5, x:0 };
+const CLOSE = { h:4.4, back:5.6, look:8.5, lookY:0.2, x:0, z:0 };
 function resize() {
   const w = innerWidth, h = innerHeight, a = w / h;
   renderer.setSize(w, h, false);
   camera.aspect = a;
   camera.fov = clamp(2 * Math.atan(Math.tan(21 * Math.PI / 180) / a) * 180 / Math.PI, 46, 74);
-  // vertical: de 21:9 (a≈0,43) a 16:9 (a≈0,56) o ponto de mira aproxima-se para o jogador não ficar atrás das barras
-  if (a < 0.8) Object.assign(CAM, { h:10.8 + clamp(a - 0.46, 0, 0.3) * 6, back:9.8, look:0.6 - clamp(a - 0.46, -0.05, 0.3) * 13 });
-  else Object.assign(CAM, { h:10, back:11, look:-2.2 });     // horizontal (PC ou telemóvel rodado): jogador acima das barras
+  // vertical: de 21:9 (a≈0,43) a 16:9 (a≈0,56) o ponto de mira aproxima-se para o jogador ficar bem visível
+  if (a < 0.8) {
+    Object.assign(CAM, { h:10.8 + clamp(a - 0.46, 0, 0.3) * 6, back:9.8, look:0.6 - clamp(a - 0.46, -0.05, 0.3) * 13 });
+    Object.assign(CLOSE, { h:5.4, back:6.0, look:8, lookY:-0.8 });
+  } else {
+    Object.assign(CAM, { h:10, back:11, look:-2.2 });     // horizontal (PC ou telemóvel rodado)
+    Object.assign(CLOSE, { h:4.6, back:7, look:9, lookY:0 });
+  }
   camera.updateProjectionMatrix();
 }
 addEventListener('resize', resize); resize();
 const debugCam = { on:false, pos:[0, 2, 5], look:[0, 1, 0] };
+const camFrom = { pos:new V3(), look:new V3(), k:1 }, _cp = new V3(), _cl = new V3(), _lookNow = new V3();
+function setCam(mode, animate = true) {
+  if (animate && inMatch()) { camFrom.pos.copy(camera.position).sub(fx.offset); camFrom.look.copy(_lookNow); camFrom.k = 0; } else camFrom.k = 1;
+  M.cam = mode; store.set('cam', mode);
+  $('camBtn').classList.toggle('on', mode === 'close');
+  $('camBtn').setAttribute('aria-label', mode === 'close' ? 'Câmara: perto (tocar para TV)' : 'Câmara: TV (tocar para perto)');
+}
 function updateCamera(dt, t) {
   if (debugCam.on) { camera.position.fromArray(debugCam.pos); camera.lookAt(...debugCam.look); return; }
   if (!inMatch()) {
     const a = t * 0.06;
-    camera.position.set(Math.sin(a) * 24, 11, Math.cos(a) * 24); camera.lookAt(0, 0, 0); return;
+    camera.position.set(Math.sin(a) * 24, 11, Math.cos(a) * 24); camera.lookAt(0, 0, 0); _lookNow.set(0, 0, 0); return;
   }
-  const s = sideOf(M.me), px = P[M.me].pos.x;
+  const s = sideOf(M.me), me = P[M.me], px = me.pos.x;
   CAM.x += (px * 0.45 - CAM.x) * Math.min(1, dt * 3);
-  camera.position.set(CAM.x, CAM.h, s * (HL + CAM.back));
-  camera.lookAt(CAM.x * 0.4, 0, -s * CAM.look);
+  CLOSE.x += (px * 0.8 - CLOSE.x) * Math.min(1, dt * 4);
+  // atrás do jogador, sem passar a rede nem fugir demasiado para trás
+  const zWant = s * clamp(Math.abs(me.pos.z) + CLOSE.back, HL - 1, HL + 9);
+  CLOSE.z += (zWant - CLOSE.z) * Math.min(1, dt * 3);
+  if (M.cam === 'close') { _cp.set(CLOSE.x, CLOSE.h, CLOSE.z); _cl.set(CLOSE.x * 0.55, CLOSE.lookY, CLOSE.z - s * (CLOSE.back + CLOSE.look)); }
+  else { _cp.set(CAM.x, CAM.h, s * (HL + CAM.back)); _cl.set(CAM.x * 0.4, 0, -s * CAM.look); }
+  if (camFrom.k < 1) {                                            // transição suave entre câmaras
+    camFrom.k = Math.min(1, camFrom.k + dt * 2.2);
+    const e = camFrom.k * camFrom.k * (3 - 2 * camFrom.k);
+    _cp.lerpVectors(camFrom.pos, _cp, e); _cl.lerpVectors(camFrom.look, _cl, e);
+  }
+  camera.position.copy(_cp); camera.lookAt(_cl); _lookNow.copy(_cl);
   camera.position.add(fx.offset);
 }
 
-// ---------------------------------------------------------------- input: tocar = correr · arrastar = apontar · largar = bater
+// ---------------------------------------------------------------- input: tocar = correr · deslizar (swipe) = bater
+// A pancada sai no momento em que o dedo termina o swipe: a direção do swipe dá a direção da bola,
+// o comprimento dá a potência. Serviço: toca para lançar a bola ao ar e desliza para cima para servir.
 const raycaster = new THREE.Raycaster(), ground = new THREE.Plane(new V3(0, 1, 0), 0), ndc = new THREE.Vector2();
-const touch = { id:null, x0:0, y0:0, mode:null, aim:null, base:null };
+const SWIPE_MIN = 26, TAP_MAX = 18;
+const touch = { id:null, x0:0, y0:0, mode:null, aim:null };
 const iServe = () => M.phase === 'preserve' && M.server === M.me && !P[M.me].remote;
-const canServeNow = () => iServe() && !M.toss;
-const myServeAim = () => serveTarget(M.me, M.serveAim.ax, M.serveAim.ad);
 canvas.addEventListener('pointerdown', e => {
   if (!inMatch() || M.phase === 'over' || touch.id !== null) return;
   audio();
   try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
   Object.assign(touch, { id:e.pointerId, x0:e.clientX, y0:e.clientY, mode:'pending', aim:null });
-  if (iServe()) {
-    if (M.toss && M.toss.idx === M.me) { touch.mode = 'serveHit'; releaseServe(M.me, myServeAim()); return; }   // 2.º toque: bate
-    touch.mode = 'serveAim'; touch.base = { ...M.serveAim }; touch.aim = myServeAim();                       // 1.º: apontar
-  }
+  if (iServe()) { touch.mode = 'serve'; if (!M.toss) startToss(M.me); }   // o toque lança a bola; o swipe (no mesmo gesto ou noutro) serve
 });
 canvas.addEventListener('pointermove', e => {
   if (e.pointerId !== touch.id) return;
-  const dx = e.clientX - touch.x0, dy = e.clientY - touch.y0;
-  if (touch.mode === 'pending' && Math.hypot(dx, dy) > 16 && M.phase === 'rally') touch.mode = 'aim';
-  if (touch.mode === 'aim') touch.aim = aimFromDrag(dx, dy);
-  if (touch.mode === 'serveAim') {
-    M.serveAim = { ax:clamp(touch.base.ax + dx / (innerWidth * 0.28), -1, 1), ad:clamp(touch.base.ad - dy / (innerHeight * 0.3), 0.1, 1) };
-    touch.aim = myServeAim();
-  }
+  const dx = e.clientX - touch.x0, dy = e.clientY - touch.y0, L = Math.hypot(dx, dy);
+  if (touch.mode === 'pending' && L > TAP_MAX && M.phase === 'rally') touch.mode = 'swipe';
+  if (touch.mode === 'swipe') touch.aim = aimFromSwipe(dx, dy);
+  if (touch.mode === 'serve') touch.aim = L > SWIPE_MIN && dy < -SWIPE_MIN * 0.6 ? serveAimFromSwipe(dx, dy) : null;
 });
 const endTouch = e => {
   if (e.pointerId !== touch.id) return;
-  const dx = e.clientX - touch.x0, dy = e.clientY - touch.y0, mode = touch.mode;
+  const dx = e.clientX - touch.x0, dy = e.clientY - touch.y0, mode = touch.mode, L = Math.hypot(dx, dy);
   touch.id = null; touch.mode = null;
-  if (e.type === 'pointercancel') { hideAim(); return; }
-  if (mode === 'pending' && Math.hypot(dx, dy) < 16) onTap(touch.x0, touch.y0);
-  else if (mode === 'aim' && touch.aim) { touch.mode = 'aim'; commitShot(); touch.mode = null; }
-  else if (mode === 'serveAim' && canServeNow()) startToss(M.me);                                            // soltar: lança a bola
-  hideAim();
+  if (e.type === 'pointercancel') { touch.aim = null; return; }
+  if (mode === 'pending' && L < TAP_MAX) onTap(touch.x0, touch.y0);
+  else if (mode === 'swipe' && L >= SWIPE_MIN) commitShot(aimFromSwipe(dx, dy));
+  else if (mode === 'serve' && M.toss && M.toss.idx === M.me && L >= SWIPE_MIN && dy < -SWIPE_MIN * 0.6) releaseServe(M.me, serveAimFromSwipe(dx, dy));
+  touch.aim = null;
 };
 canvas.addEventListener('pointerup', endTouch);
 canvas.addEventListener('pointercancel', endTouch);
 
-// ↑ topspin (mais longe = mais forte e mais fundo) · ↓ curto = amorti · ↓ longo = balão
-function aimFromDrag(dx, dy) {
-  const s = sideOf(M.me), r = -s;
-  const ax = clamp(dx / (innerWidth * 0.3), -1, 1);
+// direção pelo ângulo do swipe (±30° = canto), potência pelo comprimento
+const swipeX = (dx, dy) => clamp(dx / Math.max(42, Math.abs(dy)) * 1.75, -1, 1);
+// ↑ topspin (swipe mais longo = mais forte e mais fundo) · ↓ curto = amorti · ↓ longo = balão
+function aimFromSwipe(dx, dy) {
+  const s = sideOf(M.me), r = -s, ax = swipeX(dx, dy);
   let type, depth, power;
-  if (dy > 14) {
-    const d = clamp((dy - 14) / (innerHeight * 0.2), 0, 1);
+  if (dy > 22 && dy > Math.abs(dx) * 0.55) {
+    const d = clamp((dy - 22) / (innerHeight * 0.2), 0, 1);
     if (d < 0.4) { type = 'drop'; depth = 1.8 + d * 3; power = 0.2 + d; }
     else { const k = (d - 0.4) / 0.6; type = 'lob'; depth = 8.8 + k * 2.3; power = 0.2 + k * 0.5; }
-  } else { const d = clamp(-dy / (innerHeight * 0.24), 0, 1); type = 'topspin'; depth = 5.6 + d * 5.6; power = 0.12 + d * 0.88; }
+  } else {
+    const d = clamp((Math.hypot(dx, dy) - SWIPE_MIN) / (innerHeight * 0.24), 0, 1);
+    type = 'topspin'; depth = 6.2 + d * 5.0; power = 0.15 + d * 0.85;
+  }
   return { type, power, tx:s * ax * (HW - 0.3), tz:r * depth };
 }
-function commitShot() {
-  if (M.phase !== 'rally' || !touch.aim) return;
-  P[M.me].swipe = { ...touch.aim, t:simTime };
+// serviço: ângulo = lado da caixa (T ou aberto), comprimento = profundidade e velocidade
+function serveAimFromSwipe(dx, dy) {
+  const ad = clamp((-dy - SWIPE_MIN) / (innerHeight * 0.2), 0, 1);
+  return serveTarget(M.me, swipeX(dx, dy), 0.35 + ad * 0.65);
+}
+function commitShot(aim) {
+  if (M.phase !== 'rally' || !aim) return;
+  P[M.me].swipe = { ...aim, t:simTime };
 }
 function onTap(cx, cy) {
   if (!inMatch() || M.phase === 'over') return;
@@ -857,17 +902,18 @@ function onTap(cx, cy) {
   const s = me.side;
   hit.x = clamp(hit.x, -DW - 2.5, DW + 2.5);
   hit.z = s > 0 ? clamp(hit.z, 0.8, HL + 4) : clamp(hit.z, -HL - 4, -0.8);
-  me.target = { x:hit.x, z:hit.z }; me.walk = false;
-  if (M.phase === 'rally' && B.hitter >= 0 && B.hitter !== M.me) me.manualId = B.hitId;
+  const incoming = M.phase === 'rally' && B.hitter >= 0 && B.hitter !== M.me;
+  me.target = incoming ? magnetTap(me, hit.x, hit.z) : { x:hit.x, z:hit.z }; me.walk = false;
+  if (incoming) me.manualId = B.hitId;
   tapRing.position.set(hit.x, 0.006, hit.z); tapRing.material.opacity = 0.85;
 }
 
 // mira + trajetória prevista + barras
 const AIM_NAMES = { topspin:'Topspin', drop:'Amorti', lob:'Balão' };
 function showAimVisuals() {
-  const a = touch.aim, me = P[M.me];
+  const me = P[M.me];
   const serving = iServe();
-  const aim = serving ? myServeAim() : (touch.mode === 'aim' ? a : null);
+  const aim = (touch.mode === 'swipe' || (serving && touch.mode === 'serve')) ? touch.aim : null;
   const lbl = $('aimLbl');
   if (!aim) { aimRing.material.opacity = aimDot.material.opacity = 0; prevLine.visible = false; lbl.classList.remove('show'); return; }
   const lob = aim.type === 'lob', drop = aim.type === 'drop';
@@ -894,7 +940,7 @@ function showAimVisuals() {
   for (let i = 0; i < PREV_N; i++) { const t = T * i / (PREV_N - 1); arr[i * 3] = from.x + v.x * t; arr[i * 3 + 1] = Math.max(0.02, from.y + v.y * t - 0.5 * g * t * t); arr[i * 3 + 2] = from.z + v.z * t; }
   prevGeo.attributes.position.needsUpdate = true; prevLine.computeLineDistances(); prevLine.visible = true;
 }
-function hideAim() { prevLine.visible = false; }
+
 
 // ---------------------------------------------------------------- HUD
 let toastTimer = null;
@@ -907,10 +953,18 @@ function toast(text, cls = 'info', sub = '', ms = 900) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), ms);
 }
 let coachTimer = null;
+const coachOn = () => M.coach !== 'off';
 function coach(text) {
-  const el = $('coach'); el.querySelector('span').textContent = text; el.classList.add('show');
-  clearTimeout(coachTimer); coachTimer = setTimeout(() => el.classList.remove('show'), 4800);
+  if (!coachOn()) return;
+  const el = $('coach'); el.querySelector('.ct').textContent = text; el.classList.add('show');
+  clearTimeout(coachTimer); coachTimer = setTimeout(() => el.classList.remove('show'), 5200);
 }
+function hideCoach() { clearTimeout(coachTimer); $('coach').classList.remove('show'); }
+$('coachX').addEventListener('click', hideCoach);
+$('coachOff').addEventListener('click', () => {
+  hideCoach(); setCoach('off'); updateHint();
+  toast('Dicas desligadas', 'info', 'Podes voltar a ligá-las no menu', 1400);
+});
 function countTip(key, n, text) {
   if (M.tips[key]) return;
   M.counts[key] = (M.counts[key] || 0) + 1;
@@ -931,37 +985,24 @@ function updateHUD() {
 function updateHint() {
   const h = $('hint');
   let txt = '';
-  if (M.phase === 'preserve' && M.server === M.me) txt = (M.serveNum === 2 ? '2.º serviço · ' : '') + 'Arrasta para apontar · solta para lançar · toca no verde';
-  else if (M.pointsPlayed < 3) txt = 'Toca para correr · arrasta e larga quando o anel fechar';
+  if (M.phase === 'preserve' && M.server === M.me) txt = (M.serveNum === 2 ? '2.º serviço' + (coachOn() ? ' · ' : '') : '') + (coachOn() ? 'Toca para lançar · desliza ↑ para servir' : '');
+  else if (M.pointsPlayed < 3 && coachOn()) txt = 'Toca para correr · desliza (swipe) para bater';
   h.classList.toggle('hidden', !txt); h.firstElementChild.textContent = txt;
 }
-// anéis de tempo: o verde marca onde a bola chega; o branco encolhe e fecha sobre ele no momento ideal
-function updateTimingRings(dt) {
+// sem anéis: a bola só brilha ligeiramente durante o instante ideal do swipe (aprende-se o ritmo, não se "encaixa" nada)
+function updateHalo(dt, bp) {
   const me = P[M.me], g = greenWin();
-  let on = false, onSv = false;
-  if (inMatch() && M.phase === 'rally' && me.incoming && me.incoming.absT !== Infinity && B.hitter >= 0 && B.hitter !== M.me && !me.whiff && !me.remote) {
-    const rem = me.incoming.absT - simTime, gg = g * (B.isServe ? 1.5 : 1);
-    if (rem < 1.2 && rem > -0.18) {
-      on = true;
-      const inWin = Math.abs(rem) <= gg, committed = !!me.swipe;
-      tmTarget.position.set(me.incoming.x, 0.012, me.incoming.z); tmApproach.position.set(me.incoming.x, 0.013, me.incoming.z);
-      tmApproach.scale.setScalar(1 + Math.max(0, rem) * 2.4);
-      tmTarget.material.color.setHex(inWin ? 0x5dff9f : 0x2fbf71);
-      tmApproach.material.color.setHex(inWin ? 0x5dff9f : committed ? 0xd7f34a : 0xffffff);
-      tmTarget.material.opacity = 0.9; tmApproach.material.opacity = clamp(1.25 - rem * 0.5, 0.3, 1) * (rem < 0 ? 1 + rem * 4 : 1);
-    }
+  let want = 0;
+  if (inMatch() && H().preview && !me.remote) {
+    if (M.phase === 'rally' && me.incoming && me.incoming.absT !== Infinity && B.hitter >= 0 && B.hitter !== M.me && !me.whiff) {
+      const rem = me.incoming.absT - simTime, gg = g * (B.isServe ? 1.5 : 1);
+      if (Math.abs(rem) <= gg + 0.03) want = 0.85;
+    } else if (M.toss && M.toss.idx === M.me && Math.abs(simTime - M.toss.t0 - T_IDEAL) <= g + 0.02) want = 0.85;
   }
-  if (inMatch() && M.toss && M.toss.idx === M.me) {
-    onSv = true;
-    const rel = simTime - M.toss.t0 - T_IDEAL, inWin = Math.abs(rel) <= g;
-    for (const m of [svTarget, svApproach]) { m.position.copy(B.p); m.quaternion.copy(camera.quaternion); }
-    svTarget.scale.setScalar(0.17); svApproach.scale.setScalar(0.17 + Math.abs(rel) * 1.3);
-    svTarget.material.color.setHex(inWin ? 0x5dff9f : 0x2fbf71);
-    svApproach.material.color.setHex(inWin ? 0x5dff9f : rel > 0 ? 0xff6b6b : 0xffffff);
-    svTarget.material.opacity = 0.95; svApproach.material.opacity = 0.95;
-  }
-  if (!on) { tmTarget.material.opacity = Math.max(0, tmTarget.material.opacity - dt * 6); tmApproach.material.opacity = Math.max(0, tmApproach.material.opacity - dt * 6); }
-  if (!onSv) svTarget.material.opacity = svApproach.material.opacity = 0;
+  const m = halo.material;
+  m.opacity = want > m.opacity ? want : Math.max(0, m.opacity - dt * 5);
+  halo.visible = m.opacity > 0.01;
+  halo.position.copy(bp); halo.scale.setScalar(ballMesh.scale.x * 0.42);
 }
 const qCls = q => (q >= 1 ? 'gold' : q >= 0.6 ? 'good' : q >= 0.3 ? 'warn' : 'bad');
 // texto curto que sobe junto ao jogador (qualidade do timing, velocidade)
@@ -987,8 +1028,8 @@ const screens = ['menu', 'hostScr', 'joinScr', 'tourScr', 'endScr', 'msgScr'];
 function show(id) {
   for (const s of screens) $(s).classList.toggle('off', s !== id);
   const game = id === null;
-  $('hud').classList.toggle('fade-out', !game); $('quit').classList.toggle('hidden', !game);
-  if (!game) { $('hint').classList.add('hidden'); $('aimLbl').classList.remove('show'); $('coach').classList.remove('show'); $('toast').classList.remove('show'); }
+  $('hud').classList.toggle('fade-out', !game); $('quit').classList.toggle('hidden', !game); $('camBtn').classList.toggle('hidden', !game);
+  if (!game) { $('hint').classList.add('hidden'); $('aimLbl').classList.remove('show'); hideCoach(); $('toast').classList.remove('show'); }
 }
 const icon = (id, cls = 'i') => `<svg class="${cls}"><use href="#i-${id}"/></svg>`;
 document.addEventListener('contextmenu', e => { if (!e.target.closest('input')) e.preventDefault(); });
@@ -997,7 +1038,7 @@ function saveName(n) { store.set('name', n); $('nameIn').value = n; $('joinName'
 
 function startMatch(cfg) {
   Object.assign(M, { mode:cfg.mode, me:cfg.me, names:cfg.names, surface:cfg.surface, level:cfg.level ?? M.level,
-    first:cfg.first, score:[0, 0], pointsPlayed:0, wantRematch:false, remoteRematch:false, tips:{}, counts:{}, toss:null, lastMine:{}, serveAim:{ ax:0, ad:0.62 } });
+    first:cfg.first, score:[0, 0], pointsPlayed:0, wantRematch:false, remoteRematch:false, tips:{}, counts:{}, toss:null, lastMine:{} });
   buildCourt(M.surface);
   P.forEach((p, i) => { p.isCPU = false; p.remote = false; p.target = null; p.swipe = null; p.act = null; p.ai.planId = -1; p.lookIdx = cfg.looks ? cfg.looks[i] : i; p.fig.setLook(LOOK_PRESETS[p.lookIdx]); });
   if (M.mode === 'cpu' || M.mode === 'tour') P[1].isCPU = true;
@@ -1006,8 +1047,9 @@ function startMatch(cfg) {
   show(null); updateHUD();
   $('tag').textContent = (M.mode === 'tour' ? TOUR[M.tourRound].round.toUpperCase() + ' · ' : '') + SURFACES[M.surface].label.toUpperCase() + ' · TIE BREAK A 10';
   preparePoint();
+  { const me = P[M.me], s = me.side; CLOSE.x = me.pos.x * 0.8; CLOSE.z = s * (Math.abs(me.pos.z) + CLOSE.back); CAM.x = me.pos.x * 0.45; camFrom.k = 1; }
   sfx.crowdBed(true); sfx.ui('start');
-  coach(M.server === M.me ? 'Serviço: arrasta para apontar na caixa, solta para lançar a bola e toca quando o anel à volta da bola ficar verde.' : 'Quando a bola vier, arrasta para apontar (↑ topspin, ↓ curto amorti, ↓ longo balão) e larga quando o anel branco fechar sobre o verde.');
+  coach(M.server === M.me ? 'Serviço: toca para lançar a bola e desliza para cima quando ela estiver lá em cima. O ângulo do swipe escolhe o lado, o comprimento a força.' : 'Quando a bola chegar à tua frente, desliza o dedo: ↑ topspin (mais longo = mais forte), ↓ curto amorti, ↓ longo balão. O jogador já corre um pouco para a bola; tu afinas a posição.');
   try { if (matchMedia('(pointer:coarse)').matches && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {}); } catch (e) {}
 }
 function finishMatch() {
@@ -1039,10 +1081,12 @@ function seg(id, key, val) {
   const paint = v => el.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === String(v)));
   el.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; const v = key === 'level' ? +b.dataset.v : b.dataset.v; M[key] = v; store.set(key, v); paint(v); });
   M[key] = val; paint(val);
+  return v => { M[key] = v; store.set(key, v); paint(v); };
 }
 seg('segLevel', 'level', store.get('level', 1));
 seg('segSurf', 'surface', store.get('surface', 'hard'));
 seg('segHelp', 'help', store.get('help', 'normal'));
+const setCoach = seg('segCoach', 'coach', store.get('coach', 'on'));
 buildCourt(M.surface);
 saveName(store.get('name', ''));
 $('nameIn').addEventListener('change', e => saveName(e.target.value.trim()));
@@ -1053,6 +1097,8 @@ document.addEventListener('click', e => {
   unlock(); sfx.ui(b.closest('.seg') ? 'toggle' : b.matches('[data-back], #quit, #bEndMenu') ? 'back' : 'tap');
 });
 $('quit').addEventListener('click', () => { if (M.mode !== 'online' || confirm('Sair do duelo?')) goMenu(); });
+$('camBtn').addEventListener('click', () => { setCam(M.cam === 'close' ? 'tv' : 'close'); if (M.cam === 'close') toast('Câmara perto', 'info', 'Toca outra vez para a vista TV', 1000); });
+setCam(store.get('cam', 'tv'), false);
 
 $('bQuick').addEventListener('click', () => {
   audio(); saveName(myName());
@@ -1246,7 +1292,7 @@ function frame(now, manual) {
   const bp = B.held ? B.p : _bp.lerpVectors(B.pp, B.p, alpha);
   ballMesh.position.copy(bp);
   // squash & stretch: estica com a velocidade, achata no impacto e no ressalto
-  const base = clamp(camera.position.distanceTo(bp) / 13, 1, 2.6);
+  const base = clamp(camera.position.distanceTo(bp) / 15, 1, 1.9);   // bola real (≈4 cm), só um pouco maior ao longe para se ver
   squash.t += dt;
   let sy = 1 + clamp((bsp - 12) * 0.016, 0, 0.4), axis = bsp > 0.5 ? _dir.copy(B.v).normalize() : UP;
   if (squash.t < 0.09) { sy = 1 - (1 - squash.k) * Math.sin(squash.t / 0.09 * Math.PI); axis = squash.axis; }
@@ -1261,7 +1307,7 @@ function frame(now, manual) {
   fx.update(dt);
   tapRing.material.opacity = Math.max(0, tapRing.material.opacity - dt * 1.2);
   if (inMatch() && M.phase !== 'over') showAimVisuals(); else { aimRing.material.opacity = aimDot.material.opacity = 0; prevLine.visible = false; }
-  updateTimingRings(dt);
+  updateHalo(dt, bp);
   updatePops(dt);
   updateCamera(dt, now / 1000);
   renderer.render(scene, camera);
@@ -1302,7 +1348,7 @@ const inviteCode = (location.hash.match(/d=([a-z0-9]+)/) || [])[1];
 if (inviteCode) show('joinScr'); else goMenu();
 
 // ganchos para testes
-window.__dt = { M, B, P, startMatch, NET, advance, predictBall, touch, aimFromDrag, commitShot, startToss, releaseServe, serveTarget, onTap, camera, debugCam,
+window.__dt = { M, B, P, startMatch, NET, advance, predictBall, touch, aimFromSwipe, serveAimFromSwipe, commitShot, startToss, releaseServe, serveTarget, onTap, camera, debugCam, CLOSE, CAM, setCam,
   freeze(on) { hitStopUntil = on ? Infinity : 0; }, renderer, perf,
   simulate(sec) { for (let t = 0; t < sec; t += STEP) step(STEP); },
   get simTime() { return simTime; } };
