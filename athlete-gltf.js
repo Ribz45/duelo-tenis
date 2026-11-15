@@ -5,7 +5,7 @@
 import * as THREE from './vendor/three.module.min.js';
 import { GLTFLoader } from './vendor/jsm/loaders/GLTFLoader.js';
 import * as SkeletonUtils from './vendor/jsm/utils/SkeletonUtils.js';
-import { TRACKS, sampleTrack, lerpPose, ik2, READY, WALK, HAPPY, SAD, SV_IDLE, strings, angDiff, clamp } from './player3d.js?v=8';
+import { ik2, strings, angDiff, clamp } from './player3d.js?v=9';
 
 const V3 = THREE.Vector3;
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
@@ -108,6 +108,12 @@ function rotateWorld(bone, q, w) {
   bone.quaternion.slerp(_qp, w);
   bone.updateMatrixWorld(true);
 }
+// para onde está virada uma linha esquerda→direita do corpo (ancas ou ombros), no mesmo ângulo do referencial do jogador
+const _ya = new V3(), _yb = new V3();
+function yawOf(left, rightBone) {
+  left.getWorldPosition(_ya); rightBone.getWorldPosition(_yb);
+  return Math.atan2(-(_ya.z - _yb.z), _ya.x - _yb.x);
+}
 // orientação no mundo de uma base (eixo da raquete = -y, normal da face = +z)
 function basisQuat(axis, face, out) {
   _y.copy(axis).negate().normalize();
@@ -116,8 +122,76 @@ function basisQuat(axis, face, out) {
   return out.setFromRotationMatrix(_m.makeBasis(_x, _y, _z));
 }
 
+// ---------------------------------------------------------------- pancadas (poses-chave com biomecânica de ténis real)
+// Referencial do jogador: +z para a rede, +x = lado ESQUERDO, -x = lado DIREITO (mão da raquete), y = altura ao chão (m).
+// c agachamento · lean inclinação · twist rotação dos ombros · pyaw rotação da anca
+// hr pulso direito · ra direção da cabeça da raquete · rf normal das cordas · pr/pl para onde apontam os cotovelos
+// hl pulso esquerdo livre · hg 1 = mão esquerda na raquete, a gd metros acima da mão direita (0,085 = cabo, 0,27 = coração)
+// lp: lado da palma esquerda (+1 empurra no sentido das cordas, −1 o contrário)
+// jp: salto (m) — só no serviço, para chegar à bola lá em cima
+const PK = ['c', 'lean', 'twist', 'pyaw', 'hg', 'gd', 'lp', 'jp'], PV = ['hr', 'ra', 'rf', 'hl', 'pr', 'pl'];
+const Q = o => Object.assign({ c:0.4, lean:0.25, twist:0, pyaw:0, hr:[-0.12, 1.0, 0.33], ra:[0.12, 0.5, 0.86], rf:[-1, 0, 0],
+  hl:[0.22, 1.0, 0.25], hg:0, gd:0.27, lp:-1, jp:0, pr:[-1, -0.6, -0.5], pl:[1, -0.6, -0.5] }, o);
+function lerpP(a, b, u, out) {
+  for (const k of PK) out[k] = a[k] + (b[k] - a[k]) * u;
+  for (const k of PV) { const o = out[k] || (out[k] = [0, 0, 0]); for (let i = 0; i < 3; i++) o[i] = a[k][i] + (b[k][i] - a[k][i]) * u; }
+  return out;
+}
+function sampleP(track, t, out) {
+  if (t <= track[0][0]) return lerpP(track[0][1], track[0][1], 0, out);
+  for (let i = 0; i < track.length - 1; i++) {
+    const [t0, p0] = track[i], [t1, p1] = track[i + 1];
+    if (t <= t1) { const u = (t - t0) / (t1 - t0); return lerpP(p0, p1, u * u * (3 - 2 * u), out); }
+  }
+  const last = track[track.length - 1][1]; return lerpP(last, last, 0, out);
+}
+// posição de espera: raquete à frente, mão esquerda a segurar o coração da raquete
+const R_READY = Q({ c:0.42, lean:0.28, hg:1, gd:0.27, lp:-1 });
+const R_WALK = Q({ c:0.05, lean:0.05, hr:[-0.27, 0.9, 0.1], ra:[0, -0.5, 0.86], rf:[-1, 0, 0], hl:[0.24, 0.9, 0.05] });
+const R_HAPPY = Q({ c:0.3, lean:0.05, hr:[-0.27, 0.93, 0.12], ra:[0, -0.9, 0.4], hl:[0.24, 1.45, 0.28], pl:[1, -0.2, -1] });
+const R_SAD = Q({ c:0.0, lean:0.38, hr:[-0.26, 0.82, 0.08], ra:[0, -0.95, 0.3], hl:[0.22, 0.9, -0.02], pl:[1, 0.2, -1] });
+// direita: rotação de ombros com a mão esquerda no coração → laço atrás → cabeça cai (lag) → contacto à frente com o braço
+// quase esticado e a raquete paralela à linha de fundo → "limpa-para-brisas" e acaba por cima do ombro esquerdo
+const FH_TURN = Q({ c:0.5, lean:0.15, twist:-1.15, pyaw:-0.55, hr:[-0.38, 1.12, 0.02], ra:[0, 0.8, -0.6], rf:[-1, 0, 0], hg:1, gd:0.27, lp:-1, pr:[-0.4, -1, -0.6], pl:[0.3, -1, 0.6] });
+const FH_BACK = Q({ c:0.55, lean:0.15, twist:-1.35, pyaw:-0.6, hr:[-0.55, 1.28, -0.32], ra:[-0.15, 0.7, -0.7], rf:[0.95, -0.1, -0.2], hl:[-0.2, 1.28, 0.45], pr:[-0.3, -1, -0.2], pl:[1, -0.3, -0.2] });
+const FH_DROP = Q({ c:0.55, lean:0.18, twist:-1.05, pyaw:-0.35, hr:[-0.6, 0.98, -0.3], ra:[-0.2, -0.55, -0.8], rf:[0.15, 0.9, -0.35], hl:[0, 1.22, 0.45], pr:[-0.2, -1, 0], pl:[1, -0.4, 0] });
+const FH_SWING = Q({ c:0.5, lean:0.2, twist:-0.55, pyaw:-0.1, hr:[-0.58, 0.9, 0], ra:[-0.65, -0.3, -0.7], rf:[0.3, 0.3, -0.9], hl:[0.15, 1.2, 0.35], pr:[-0.3, -1, 0.3], pl:[1, -0.5, -0.1] });
+const FH_HIT = Q({ c:0.45, lean:0.22, twist:0, pyaw:0.15, hr:[-0.3, 0.96, 0.26], ra:[-0.9, 0.05, 0.42], rf:[-0.35, -0.05, -1], hl:[0.3, 1.15, 0.25], pr:[-0.4, -1, 0.2], pl:[1, -0.6, -0.3] });
+const FH_FOLLOW = Q({ c:0.4, lean:0.2, twist:0.65, pyaw:0.4, hr:[0, 1.32, 0.42], ra:[0.25, 0.95, 0.05], rf:[-0.95, -0.1, -0.25], hl:[0.32, 1.2, 0.2], pr:[-0.3, -0.4, 1], pl:[1, -0.6, -0.4] });
+const FH_FINISH = Q({ c:0.38, lean:0.18, twist:1.0, pyaw:0.55, hr:[0.22, 1.42, 0.12], ra:[0.35, -0.25, -0.9], rf:[0.85, 0.35, 0.3], hl:[0.3, 1.25, 0.12], pr:[-0.1, 0.2, 1], pl:[1, -0.6, -0.4] });
+// esquerda a duas mãos: as duas mãos juntas no cabo durante todo o gesto
+const B2 = { hg:1, gd:0.085, lp:-1 };
+const BH_TURN = Q({ ...B2, c:0.5, lean:0.15, twist:1.15, pyaw:0.55, hr:[0.22, 1.05, 0.05], ra:[0.15, 0.8, -0.55], rf:[0.95, 0, 0.2], pr:[0, -1, 0.5], pl:[0.6, -1, -0.3] });
+const BH_BACK = Q({ ...B2, c:0.55, lean:0.15, twist:1.35, pyaw:0.6, hr:[0.38, 1.0, -0.25], ra:[0.3, 0.55, -0.78], rf:[0.95, 0.2, 0.1], pr:[0, -1, 0.5], pl:[0.6, -1, -0.3] });
+const BH_DROP = Q({ ...B2, c:0.55, lean:0.18, twist:1.1, pyaw:0.4, hr:[0.42, 0.88, -0.22], ra:[0.3, -0.5, -0.8], rf:[0.35, -0.85, 0.35], pr:[0, -1, 0.5], pl:[0.6, -1, -0.3] });
+const BH_SWING = Q({ ...B2, c:0.5, lean:0.2, twist:0.6, pyaw:0.15, hr:[0.4, 0.86, 0.05], ra:[0.65, -0.3, -0.7], rf:[0.3, -0.3, 0.9], pr:[0.1, -1, 0.4], pl:[0.7, -1, -0.2] });
+const BH_HIT = Q({ ...B2, c:0.45, lean:0.22, twist:0.15, pyaw:-0.05, hr:[0.29, 0.96, 0.25], ra:[0.9, 0.05, 0.42], rf:[-0.35, 0.05, 1], pr:[0.2, -1, 0.3], pl:[0.8, -0.8, -0.2] });
+const BH_FOLLOW = Q({ ...B2, c:0.4, lean:0.2, twist:-0.65, pyaw:-0.4, hr:[0, 1.3, 0.42], ra:[-0.25, 0.95, 0.05], rf:[-0.95, 0.1, 0.25], pr:[-0.2, -0.6, 1], pl:[0.5, -0.4, 1] });
+const BH_FINISH = Q({ ...B2, c:0.38, lean:0.18, twist:-1.0, pyaw:-0.55, hr:[-0.2, 1.42, 0.12], ra:[-0.35, -0.25, -0.9], rf:[-0.85, 0.35, 0.3], pr:[-0.5, 0.2, 1], pl:[0.2, 0.2, 1] });
+// vóleis: gesto curto, cabeça da raquete acima do pulso, face aberta, contacto bem à frente
+const VF_PREP = Q({ c:0.5, lean:0.3, twist:-0.55, pyaw:-0.25, hr:[-0.45, 1.22, 0.18], ra:[-0.35, 0.8, -0.2], rf:[0.15, -0.15, -1], hl:[-0.1, 1.2, 0.45], pr:[-0.4, -1, -0.3], pl:[1, -0.5, 0] });
+const VF_HIT = Q({ c:0.5, lean:0.3, twist:-0.2, pyaw:-0.1, hr:[-0.36, 0.77, 0.28], ra:[-0.75, 0.45, 0.35], rf:[-0.1, -0.35, -1], hl:[0.2, 1.15, 0.35], pr:[-0.4, -1, 0.1], pl:[1, -0.5, -0.2] });
+const VB_PREP = Q({ c:0.5, lean:0.3, twist:0.6, pyaw:0.25, hr:[0.22, 1.2, 0.12], ra:[0.4, 0.8, -0.15], rf:[0.15, 0.15, 1], hg:1, gd:0.27, lp:-1, pr:[0, -1, 0.4], pl:[0.5, -1, 0] });
+const VB_HIT = Q({ c:0.5, lean:0.3, twist:0.25, pyaw:0.1, hr:[0.36, 0.77, 0.28], ra:[0.75, 0.45, 0.35], rf:[-0.1, 0.35, 1], hl:[-0.25, 1.1, -0.1], pr:[0.2, -1, 0.2], pl:[1, -0.4, -0.6] });
+// serviço: de lado para a rede → lança e leva a raquete atrás → "troféu" → raquete cai nas costas → impacto em extensão total → pronação e acaba do lado esquerdo
+const SV_WAIT = Q({ c:0.12, lean:0.12, twist:0.15, pyaw:-0.85, hr:[-0.22, 0.95, 0.25], ra:[0.05, -0.3, 0.95], rf:[-1, 0, 0], hl:[0.06, 0.95, 0.38] });
+const SV_TOSS = Q({ c:0.2, lean:0, twist:0.1, pyaw:-0.85, hr:[-0.32, 1.1, -0.15], ra:[-0.05, 0.25, -0.97], rf:[-1, 0, 0], hl:[0.1, 1.7, 0.3], pl:[1, -0.3, -0.3] });
+const SV_TROPHY = Q({ c:0.5, lean:-0.2, twist:-0.35, pyaw:-0.85, hr:[-0.38, 1.55, -0.2], ra:[0.05, 0.75, -0.65], rf:[-1, 0, 0], hl:[0.12, 2.0, 0.18], pr:[-1, 0.2, -0.4], pl:[1, -0.2, -0.3] });
+const SV_DROP = Q({ c:0.3, lean:-0.25, twist:-0.2, pyaw:-0.7, jp:0.04, hr:[-0.25, 1.62, -0.12], ra:[0.1, -0.85, -0.5], rf:[1, 0, 0], hl:[0.2, 1.35, 0.3], pr:[-0.4, 1, 0.3], pl:[1, -0.4, 0.2] });
+const SV_HIT = Q({ c:0, lean:0.1, twist:0.25, pyaw:-0.35, jp:0.17, hr:[-0.15, 1.98, 0.28], ra:[0.05, 0.95, 0.3], rf:[0, -0.3, -1], hl:[0.2, 1.25, 0.2], pr:[-1, 0, 0], pl:[1, -0.6, 0.3] });
+const SV_FOLLOW = Q({ c:0.32, lean:0.45, twist:0.65, pyaw:0.05, hr:[0.28, 0.85, 0.3], ra:[0.25, -0.85, 0.4], rf:[0, 0, 1], hl:[0.25, 1.0, 0.1], pr:[-0.3, -1, 0.2], pl:[1, -0.6, 0] });
+const RT = {
+  fh: [[-0.6, R_READY], [-0.42, FH_TURN], [-0.28, FH_BACK], [-0.12, FH_DROP], [-0.05, FH_SWING], [0, FH_HIT], [0.12, FH_FOLLOW], [0.28, FH_FINISH], [0.5, FH_FINISH], [0.8, R_READY]],
+  bh: [[-0.6, R_READY], [-0.42, BH_TURN], [-0.28, BH_BACK], [-0.12, BH_DROP], [-0.05, BH_SWING], [0, BH_HIT], [0.12, BH_FOLLOW], [0.28, BH_FINISH], [0.5, BH_FINISH], [0.8, R_READY]],
+  vf: [[-0.4, R_READY], [-0.2, VF_PREP], [0, VF_HIT], [0.15, VF_HIT], [0.45, R_READY]],
+  vb: [[-0.4, R_READY], [-0.2, VB_PREP], [0, VB_HIT], [0.15, VB_HIT], [0.45, R_READY]],
+  sv: [[-0.75, SV_WAIT], [-0.5, SV_TOSS], [-0.2, SV_TROPHY], [-0.07, SV_DROP], [0, SV_HIT], [0.25, SV_FOLLOW], [0.6, SV_FOLLOW], [0.95, R_READY]],
+};
+
 // ---------------------------------------------------------------- atleta
 const tA = new V3(), tB = new V3(), tC = new V3(), tT = new V3(), tP = new V3(), tHr = new V3(), tHl = new V3(), tRa = new V3(), tRf = new V3(), tD1 = new V3(), tD2 = new V3();
+const tG = new V3(), tF = new V3(), tN = new V3(), qL = new THREE.Quaternion(), _mL = new THREE.Matrix4();
+const qIdent = new THREE.Quaternion(), qPart = new THREE.Quaternion();
 const qTmp = new THREE.Quaternion(), qRacket = new THREE.Quaternion(), UPV = new V3(0, 1, 0);
 const BIP = n => 'Bip01_' + n;
 
@@ -126,7 +200,7 @@ export class RealAthlete {
     this.scene = scene; this.assets = assets;
     this.frame = new THREE.Object3D();          // referencial do jogador: pés no chão, +z para a rede
     this.frameMat = new THREE.MeshStandardMaterial({ color:look.racket, roughness:0.35 });
-    this.cur = lerpPose(READY, READY, 0, {}); this.tgt = lerpPose(READY, READY, 0, {});
+    this.cur = lerpP(R_READY, R_READY, 0, {}); this.tgt = lerpP(R_READY, R_READY, 0, {});
     this.yaw = 0; this.gait = 0; this.t = 0; this.headYaw = 0; this.headPitch = 0;
     this.blinkAt = 1 + Math.random() * 3; this.blink = 0;
     this.dbg = {};
@@ -161,21 +235,38 @@ export class RealAthlete {
     const wp = o => o.getWorldPosition(new V3()), b = this.b;
     this.len = { ua:wp(b.uaR).distanceTo(wp(b.laR)), la:wp(b.laR).distanceTo(wp(b.hR)), th:wp(b.thR).distanceTo(wp(b.caR)), ca:wp(b.caR).distanceTo(wp(b.ftR)) };
     this.hipH = wp(b.pelvis).y; this.ankleH = wp(b.ftR).y;
+    // calibração de cada braço para o pulso anatómico (posição neutra = pose de ligação)
+    const armCal = (ua, la, hand) => {
+      const hwq = hand.getWorldQuaternion(new THREE.Quaternion());
+      return { ua, la, hand, uaRest:ua.quaternion.clone(), laRest:la.quaternion.clone(), qRel:hand.quaternion.clone(), qRelInv:hand.quaternion.clone().invert(), axisLocal:hand.position.clone().normalize(),
+        nLocal:wp(hand).sub(wp(la)).normalize().applyQuaternion(hwq.invert()) };
+    };
+    this.cal = { R:armCal(b.uaR, b.laR, b.hR), L:armCal(b.uaL, b.laL, b.hL) };
     this.faceOffset = wp(b.hL).x > 0 ? 0 : Math.PI;                       // o modelo olha para +z ou -z
     this.lidDrop = wp(B('LEyeBlinkTop') || b.head).distanceTo(wp(B('LEyeBlinkBottom') || b.head)) * 0.9;
-    // raquete na palma da mão direita, calibrada pelos ossos da mão (os dedos já vêm a agarrar)
+    // raquete na palma da mão direita, calibrada pelos ossos da mão (os dedos já vêm a agarrar):
+    // o cabo atravessa a palma na diagonal (da base do indicador ao calcanhar da mão) e o topo do cabo fica rente ao mindinho
     const hW = wp(b.hR), F = wp(B('R_Finger2')).sub(hW).normalize(), Acr = wp(B('R_Finger1')).sub(wp(B('R_Finger4'))).normalize();
-    const N = new V3().crossVectors(F, Acr).normalize();
-    const axisW = Acr.clone().addScaledVector(F, 0.35).normalize();
+    const N = new V3().crossVectors(F, Acr).normalize();                  // costas da mão
+    const axisW = Acr.clone().addScaledVector(F, 0.6).normalize();
     const hq = b.hR.getWorldQuaternion(new THREE.Quaternion()), hqi = hq.clone().invert();
     const qWorld = basisQuat(axisW, N, new THREE.Quaternion());
     this.racket = makeRacket(this.frameMat);
     this.racket.quaternion.copy(hqi).multiply(qWorld);
     // a escala do modelo (cm → m) está acima dos ossos: a raquete compensa para ficar com o tamanho real
-    const ws = b.hR.getWorldScale(new V3()).x; this.racket.scale.setScalar(1 / ws);
-    this.racket.position.copy(b.hR.worldToLocal(hW.clone().addScaledVector(F, 0.07).addScaledVector(N, -0.02)));
+    const ws = this.ws = b.hR.getWorldScale(new V3()).x; this.racket.scale.setScalar(1 / ws);
+    this.gripY = 0.035;                                                     // centro da palma no eixo do cabo (coordenadas da raquete)
+    const palmR = hW.clone().addScaledVector(F, 0.07).addScaledVector(N, -0.02);
+    this.racket.position.copy(b.hR.worldToLocal(palmR.addScaledVector(axisW, this.gripY)));
     b.hR.add(this.racket);
     this.qRacketInv = this.racket.quaternion.clone().invert();
+    // mão esquerda: base (dedos, mindinho→indicador, palma) na pose de ligação, para a pôr a agarrar o cabo ou o coração da raquete
+    const hWl = wp(b.hL), Fl = wp(B('L_Finger2')).sub(hWl).normalize(), Al = wp(B('L_Finger1')).sub(wp(B('L_Finger4')));
+    Al.addScaledVector(Fl, -Al.dot(Fl)).normalize();
+    const Pl = new V3().crossVectors(Fl, Al).normalize();                   // palma da mão esquerda
+    const qBasisL = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(Fl, Al, Pl));
+    this.qLHand = qBasisL.invert().multiply(b.hL.getWorldQuaternion(new THREE.Quaternion()));
+    this.palmL = b.hL.worldToLocal(hWl.clone().addScaledVector(Fl, 0.075).addScaledVector(Pl, 0.02));
     // ossos que as camadas de ténis alteram: guardamos o valor da animação para o repor antes de cada atualização
     // (o misturador do three.js só reescreve um osso quando o valor da animação muda; sem isto as correções acumulavam)
     this.modBones = [b.pelvis, ...b.spine, b.head, b.uaR, b.laR, b.hR, b.uaL, b.laL, b.hL, b.thL, b.caL, b.ftL, b.thR, b.caR, b.ftR];
@@ -205,21 +296,22 @@ export class RealAthlete {
     let wantYaw = netYaw;
     if (!s.act && sp > 2.6 && s.mode !== 'serve') { const d = angDiff(Math.atan2(s.vx, s.vz), netYaw); if (Math.abs(d) < 2.0) wantYaw = netYaw + d * 0.85; }
     this.yaw += angDiff(wantYaw, this.yaw) * (1 - Math.exp(-9 * dt));
-    this.frame.position.set(s.x, 0, s.z); this.frame.rotation.set(0, this.yaw, 0); this.frame.updateMatrixWorld(true);
-    this.model.position.set(s.x, 0, s.z); this.model.rotation.set(0, this.yaw + this.faceOffset, 0);
+    const jp = this.cur.jp || 0;                                            // salto do serviço (pés saem do chão)
+    this.frame.position.set(s.x, jp, s.z); this.frame.rotation.set(0, this.yaw, 0); this.frame.updateMatrixWorld(true);
+    this.model.position.set(s.x, jp, s.z); this.model.rotation.set(0, this.yaw + this.faceOffset, 0);
 
-    // pose de ténis alvo (igual ao boneco simples)
+    // pose de ténis alvo
     const tg = this.tgt;
-    if (s.act && TRACKS[s.act.type]) {
-      sampleTrack(TRACKS[s.act.type], s.act.t, tg);
+    if (s.act && RT[s.act.type]) {
+      sampleP(RT[s.act.type], s.act.t, tg);
       if (s.act.h !== undefined) tg.c = Math.min(0.8, tg.c + clamp(0.95 - s.act.h, 0, 0.4) * 0.9 * Math.exp(-((s.act.t / 0.25) ** 2)));
     } else {
-      const base = s.mode === 'serve' ? SV_IDLE : s.mode === 'happy' ? HAPPY : s.mode === 'sad' ? SAD : s.mode === 'walk' ? WALK : READY;
-      lerpPose(base, base, 0, tg);
+      const base = s.mode === 'serve' ? SV_WAIT : s.mode === 'happy' ? R_HAPPY : s.mode === 'sad' ? R_SAD : s.mode === 'walk' ? R_WALK : R_READY;
+      lerpP(base, base, 0, tg);
       if (s.mode === 'serve') tg.hl[1] = 0.88 + Math.abs(Math.sin(this.t * 4.2)) * 0.12;
       if (s.mode === 'happy') tg.hl[1] += Math.sin(this.t * 9) * 0.06;
     }
-    const cu = this.cur; lerpPose(cu, tg, 1 - Math.exp(-(s.act ? 26 : 9) * dt), cu);
+    const cu = this.cur; lerpP(cu, tg, s.snap ? 1 : 1 - Math.exp(-(s.act ? 26 : 9) * dt), cu);
 
     // 1) animações de base: espera / andar / corrida / sprint
     const wWalk = smooth(0.25, 1.0, sp) * (1 - smooth(1.9, 3.0, sp)), wJog = smooth(1.9, 3.0, sp) * (1 - smooth(4.4, 5.6, sp)), wSpr = smooth(4.4, 5.6, sp);
@@ -248,16 +340,20 @@ export class RealAthlete {
       const sk = s.split !== undefined && s.split >= 0 && s.split < 0.32 && sp < 3 ? Math.sin(s.split / 0.32 * Math.PI) : 0;
       const bounce = (!s.act && s.mode === 'ready' && sp < 0.3) ? Math.sin(this.t * 11) * 0.012 : 0;
       b.pelvis.getWorldPosition(tA);
-      const wantY = this.hipH - cu.c * 0.2 - low * 0.3 + bounce + sk * 0.05;
+      const wantY = jp + this.hipH - cu.c * 0.2 - low * 0.3 + bounce + sk * 0.05;
       tA.y += (wantY - tA.y) * wLegs;
       b.pelvis.position.copy(b.pelvis.parent.worldToLocal(tA)); b.pelvis.updateMatrixWorld(true);
-      rotateWorld(b.pelvis, qTmp.setFromAxisAngle(UPV, cu.pyaw), wLegs);
+      // orientação ABSOLUTA das ancas (a animação de base já traz o corpo rodado; aqui fica exatamente como a pose pede)
+      rotateWorld(b.pelvis, qTmp.setFromAxisAngle(UPV, angDiff(this.yaw + cu.pyaw, yawOf(b.thL, b.thR))), wLegs);
     }
-    // 3) tronco: rotação dos ombros e inclinação, repartidas pela coluna
+    // 3) tronco: ombros com a rotação pedida (absoluta), repartida pela coluna, e inclinação
     const right = tB.set(1, 0, 0).applyQuaternion(fq);
-    if (!D.noSpine) for (const sb of b.spine) {
-      rotateWorld(sb, qTmp.setFromAxisAngle(UPV, (cu.twist + (wLegs > 0.5 ? 0 : cu.pyaw * 0.5)) / 3), wBody);
-      rotateWorld(sb, qTmp.setFromAxisAngle(right, (cu.lean * 0.55 + low * 1.1) / 3), wBody);
+    if (!D.noSpine) {
+      const dTw = angDiff(this.yaw + cu.pyaw + cu.twist, yawOf(b.uaL, b.uaR)) / b.spine.length;
+      for (const sb of b.spine) {
+        rotateWorld(sb, qTmp.setFromAxisAngle(UPV, dTw), wBody);
+        rotateWorld(sb, qTmp.setFromAxisAngle(right, (cu.lean * 0.55 + low * 1.1) / 3), wBody);
+      }
     }
     // 4) pernas: base de apoio com os pés no chão (parado / a bater)
     if (wLegs > 0.001 && !D.noLegs) {
@@ -286,15 +382,39 @@ export class RealAthlete {
       tHr.x += (fh ? -1 : 1) * clamp((s.act.lat ?? 0.72) - 0.72, -0.4, 0.5) * w;
     }
     tRa.fromArray(cu.ra).normalize(); tRf.fromArray(cu.rf).normalize();
-    tHl.fromArray(cu.hl); if (cu.hg > 0.01) tHl.lerp(tC.copy(tHr).addScaledVector(tRa, 0.13), cu.hg);
-    toW(tHr); toW(tHl); tRa.applyQuaternion(fq); tRf.applyQuaternion(fq);
-    if (!D.noArms) this.arm(b.uaR, b.laR, b.hR, tHr, tP.fromArray(cu.pr).applyQuaternion(fq), wArmR);
-    if (wArmR > 0.001 && !D.noArms) {                                                  // mão orientada para a raquete apontar e a face ficar certa
-      basisQuat(tRa, tRf, qRacket).multiply(this.qRacketInv);
-      b.laR.getWorldQuaternion(_qp).invert().multiply(qRacket);
-      b.hR.quaternion.slerp(_qp, wArmR); b.hR.updateMatrixWorld(true);
+    toW(tHr); tRa.applyQuaternion(fq); tRf.applyQuaternion(fq);
+    // mão direita orientada para a raquete apontar e a face ficar certa; o braço adapta-se para o pulso ficar natural
+    basisQuat(tRa, tRf, qRacket).multiply(this.qRacketInv);
+    if (!D.noArms) this.arm(this.cal.R, tHr, tP.fromArray(cu.pr).applyQuaternion(fq), wArmR, qRacket, wArmR);
+    // mão esquerda: livre, ou a agarrar a raquete onde ela está de facto (cabo na esquerda a duas mãos, coração na espera)
+    tHl.fromArray(cu.hl); toW(tHl);
+    const gripW = D.noArms ? 0 : cu.hg * (s.act ? 1 : 1 - run);
+    if (gripW > 0.01) {
+      this.racket.updateMatrixWorld(true); this.racket.getWorldQuaternion(qL);
+      tG.set(0, this.gripY - cu.gd, 0); this.racket.localToWorld(tG);               // ponto da raquete onde a mão agarra
+      tA.set(0, -1, 0).applyQuaternion(qL);                                         // eixo da raquete (para a cabeça)
+      // a mão pode rodar à volta do cabo: escolhe o ângulo em que o antebraço continua naturalmente para a mão
+      tN.set(0, 0, 1).applyQuaternion(qL); tN.addScaledVector(tA, -tN.dot(tA)).normalize();
+      tF.crossVectors(tA, tN);                                                      // 2.º eixo perpendicular ao cabo
+      this.b.uaL.getWorldPosition(tB); tB.subVectors(tG, tB).normalize();          // do ombro esquerdo para o cabo
+      let best = -9, bestA = 0;
+      for (let k = 0; k < 16; k++) {
+        const a = k * Math.PI / 8, ca = Math.cos(a), sa = Math.sin(a);
+        tT.copy(tN).multiplyScalar(ca).addScaledVector(tF, sa);                     // palma candidata
+        tP.crossVectors(tA, tT);                                                    // dedos
+        qTmp.setFromRotationMatrix(_mL.makeBasis(tP, tA, tT)).multiply(this.qLHand);
+        const sc = tC.copy(this.cal.L.nLocal).applyQuaternion(qTmp).dot(tB);
+        if (sc > best) { best = sc; bestA = a; }
+      }
+      if (this.lphi === undefined || !(gripW > 0.02)) this.lphi = bestA;
+      this.lphi += angDiff(bestA, this.lphi) * (s.snap ? 1 : 1 - Math.exp(-14 * dt));
+      tT.copy(tN).multiplyScalar(Math.cos(this.lphi)).addScaledVector(tF, Math.sin(this.lphi));
+      tF.crossVectors(tA, tT);                                                      // dedos à volta do cabo
+      qTmp.setFromRotationMatrix(_mL.makeBasis(tF, tA, tT)).multiply(this.qLHand);  // rotação da mão esquerda no mundo
+      tC.copy(this.palmL).multiplyScalar(this.ws).applyQuaternion(qTmp);            // do pulso ao centro da palma
+      tHl.lerp(tG.sub(tC), gripW);
     }
-    if (!D.noArms) this.arm(b.uaL, b.laL, b.hL, tHl, tP.fromArray(cu.pl).applyQuaternion(fq), wArmL);
+    if (!D.noArms) this.arm(this.cal.L, tHl, tP.fromArray(cu.pl).applyQuaternion(fq), Math.max(wArmL, gripW), gripW > 0.01 ? qTmp : null, gripW);
 
     // 6) cabeça segue a bola
     let wantY = 0, wantP = 0.1;
@@ -323,11 +443,37 @@ export class RealAthlete {
     }
   }
 
-  arm(ua, la, hand, target, pole, w) {
+  // braço com IK de 2 ossos e pulso anatómico: se houver orientação desejada para a mão (qh),
+  // 1) o cotovelo coloca-se para o antebraço ficar alinhado com a mão, 2) a rotação à volta do antebraço
+  // (pronação/supinação) passa para o antebraço, 3) a dobra do pulso fica limitada a ângulos reais
+  arm(A, target, pole, w, qh, wHand) {
     if (w <= 0.001) return;
-    ua.getWorldPosition(tA);
+    A.ua.getWorldPosition(tA);
+    if (qh) {
+      tC.copy(A.nLocal).applyQuaternion(qh);                                   // direção do antebraço com o pulso direito
+      tB.copy(target).addScaledVector(tC, -this.len.la).sub(tA).normalize();   // onde o cotovelo devia estar
+      pole.normalize().multiplyScalar(0.3).addScaledVector(tB, 0.7);
+    }
+    // braço e antebraço partem da pose de repouso: a torção que resulta da IK é anatómica (não herdada da animação)
+    A.ua.quaternion.slerp(A.uaRest, w); A.la.quaternion.slerp(A.laRest, w); A.ua.updateMatrixWorld(true);
     ik2(tA, target, this.len.ua, this.len.la, pole.normalize(), tD1, tD2);
-    aimBone(ua, la, tD1, w); aimBone(la, hand, tD2, w);
+    aimBone(A.ua, A.la, tD1, w); aimBone(A.la, A.hand, tD2, w);
+    if (!qh || wHand <= 0.001) return;
+    // rotação do pulso pedida, no referencial do antebraço, a partir da posição neutra
+    A.la.getWorldQuaternion(_qp); _qw.copy(_qp).invert().multiply(qh).multiply(A.qRelInv);
+    // torção à volta do eixo do antebraço → antebraço (limitada a ±95°)
+    const ax = A.axisLocal, d = _qw.x * ax.x + _qw.y * ax.y + _qw.z * ax.z;
+    _qs.set(ax.x * d, ax.y * d, ax.z * d, _qw.w); if (_qs.lengthSq() < 1e-9) _qs.identity(); else _qs.normalize();
+    if (_qs.w < 0) _qs.set(-_qs.x, -_qs.y, -_qs.z, -_qs.w);
+    const tw = 2 * Math.acos(clamp(_qs.w, -1, 1));
+    if (tw > 1.65) _qs.slerp(qIdent, 1 - 1.65 / tw);
+    qPart.copy(qIdent).slerp(_qs, wHand);
+    A.la.quaternion.multiply(qPart); A.la.updateMatrixWorld(true);
+    _qw.premultiply(qPart.invert());                                           // o que sobra para o pulso
+    if (_qw.w < 0) _qw.set(-_qw.x, -_qw.y, -_qw.z, -_qw.w);
+    const bend = 2 * Math.acos(clamp(_qw.w, -1, 1));
+    if (bend > 1.15) _qw.slerp(qIdent, 1 - 1.15 / bend);                       // pulso: no máximo ~66°
+    A.hand.quaternion.slerp(_qw.multiply(A.qRel), wHand); A.hand.updateMatrixWorld(true);
   }
 
   setVisible(v) { this.model.visible = v; }

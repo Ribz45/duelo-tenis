@@ -1,9 +1,9 @@
 import * as THREE from './vendor/three.module.min.js';
-import { Athlete, LOOK_PRESETS, TRACK_END } from './player3d.js?v=8';
-import { FX } from './fx.js?v=8';
-import { RealAthlete, loadAthleteAssets, warmKits } from './athlete-gltf.js?v=8';
-import { sfx, unlock } from './audio.js?v=8';
-import { HL, HW, SVC, BR, serverFor, servePositions as rulePositions, judgeFirstBounce, isMatchOver, matchPointFor, outBy } from './rules.js?v=8';
+import { Athlete, LOOK_PRESETS, TRACK_END } from './player3d.js?v=9';
+import { FX } from './fx.js?v=9';
+import { RealAthlete, loadAthleteAssets, warmKits } from './athlete-gltf.js?v=9';
+import { sfx, unlock } from './audio.js?v=9';
+import { HL, HW, SVC, BR, serverFor, servePositions as rulePositions, judgeFirstBounce, isMatchOver, matchPointFor, outBy } from './rules.js?v=9';
 
 // ---------------------------------------------------------------- constantes
 const DW = 5.485, NET_H = 0.914, GRAV = 9.81;
@@ -804,6 +804,7 @@ function resize() {
 }
 addEventListener('resize', resize); resize();
 const debugCam = { on:false, pos:[0, 2, 5], look:[0, 1, 0] };
+const LAB = { on:false, idx:0, act:null, ball:null, mode:'ready' };
 const camFrom = { pos:new V3(), look:new V3(), k:1 }, _cp = new V3(), _cl = new V3(), _lookNow = new V3();
 function setCam(mode, animate = true) {
   if (animate && inMatch()) { camFrom.pos.copy(camera.position).sub(fx.offset); camFrom.look.copy(_lookNow); camFrom.k = 0; } else camFrom.k = 1;
@@ -1282,10 +1283,12 @@ function frame(now, manual) {
   }
   for (const pl of P) {
     if (!inMatch()) { pl.vel.x = pl.vel.z = 0; }
-    updateAct(pl, dt);
+    const lab = LAB.on && LAB.idx === pl.idx;            // só para testes: pose fixa num instante da pancada
+    if (!lab) updateAct(pl, dt);
     const ix = pl.pp.x + (pl.pos.x - pl.pp.x) * alpha, iz = pl.pp.z + (pl.pos.z - pl.pp.z) * alpha;
-    pl.fig.update(dt, { x:ix, z:iz, vx:pl.vel.x, vz:pl.vel.z, side:pl.side,
-      ball:inMatch() && (B.live || B.held || M.toss) ? B.p : null, act:pl.act, mode:figMode(pl), split:simTime - (pl.splitAt ?? -9) });
+    pl.fig.update(dt, { x:ix, z:iz, vx:lab ? 0 : pl.vel.x, vz:lab ? 0 : pl.vel.z, side:pl.side,
+      ball:lab ? LAB.ball : inMatch() && (B.live || B.held || M.toss) ? B.p : null, act:lab ? LAB.act : pl.act, mode:lab ? LAB.mode : figMode(pl),
+      split:simTime - (pl.splitAt ?? -9), snap:lab });
   }
   const showBall = inMatch() && (B.live || B.held || !!M.toss);
   ballMesh.visible = blob.visible = showBall;
@@ -1349,7 +1352,7 @@ const inviteCode = (location.hash.match(/d=([a-z0-9]+)/) || [])[1];
 if (inviteCode) show('joinScr'); else goMenu();
 
 // ganchos para testes
-window.__dt = { M, B, P, startMatch, NET, advance, predictBall, touch, aimFromSwipe, serveAimFromSwipe, commitShot, startToss, releaseServe, serveTarget, onTap, camera, debugCam, CLOSE, CAM, setCam,
+window.__dt = { M, B, P, startMatch, NET, advance, predictBall, touch, aimFromSwipe, serveAimFromSwipe, commitShot, startToss, releaseServe, serveTarget, onTap, camera, debugCam, CLOSE, CAM, setCam, LAB, render:() => renderer.render(scene, camera),
   freeze(on) { hitStopUntil = on ? Infinity : 0; }, renderer, perf,
   simulate(sec) { for (let t = 0; t < sec; t += STEP) step(STEP); },
   get simTime() { return simTime; } };
