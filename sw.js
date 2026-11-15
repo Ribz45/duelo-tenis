@@ -1,10 +1,10 @@
 // Service worker: guarda o jogo no telemóvel para abrir sem internet.
 // Ao publicar uma versão nova, sobe VERSION (e o ?v= dos módulos) para os telemóveis a descarregarem.
-const VERSION = 'duelo-v6';
+const VERSION = 'duelo-v7';
 const FILES = [
   './', 'index.html', 'manifest.webmanifest',
-  'game.js?v=6', 'player3d.js?v=6', 'fx.js?v=6', 'audio.js?v=6', 'rules.js?v=6',
-  'athlete-gltf.js?v=6',
+  'game.js?v=7', 'player3d.js?v=7', 'fx.js?v=7', 'audio.js?v=7', 'rules.js?v=7',
+  'athlete-gltf.js?v=7',
   'vendor/three.module.min.js', 'vendor/peerjs.min.js',
   'vendor/jsm/loaders/GLTFLoader.js', 'vendor/jsm/utils/BufferGeometryUtils.js', 'vendor/jsm/utils/SkeletonUtils.js',
   'models/char_male.glb', 'models/char_female.glb', 'models/anims.glb', 'models/fingers.json',

@@ -137,40 +137,19 @@
     white-space:nowrap; text-shadow:0 2px 0 rgba(0,0,0,.5), 0 0 12px rgba(0,0,0,.35); will-change:transform,opacity; }
   .pop.gold { color:var(--ball); font-size:26px; } .pop.good { color:var(--good); } .pop.warn { color:var(--warn); } .pop.bad { color:var(--bad); }
   .pop.info { color:#fff; font-size:17px; font-style:normal; }
+  .pop small { display:block; text-align:center; font-size:13px; font-style:normal; font-weight:700; color:#fff; letter-spacing:.04em; }
 
-  /* painel da pancada */
-  #shotUI { position:fixed; left:calc(var(--sl) + 10px); right:calc(var(--sr) + 10px); bottom:calc(var(--sb) + 54px); z-index:5; pointer-events:none;
-    display:flex; flex-direction:column; gap:6px; max-width:440px; margin:0 auto; transition:opacity .3s var(--ease); }
-  .meter { background:rgba(7,21,43,.9); border-radius:10px; padding:6px 10px 8px; }
-  .meter .ml { display:flex; justify-content:space-between; font-family:var(--cond); font-weight:700; font-size:13px; letter-spacing:.1em; color:var(--muted); margin-bottom:5px; text-transform:uppercase; }
-  .meter .ml .mid { color:var(--ink); }
-  .bar { position:relative; height:12px; border-radius:6px; background:#1a2d4b; overflow:hidden; transition:opacity .2s; }
-  .bar.dim { opacity:.35; }
-  #tmY { position:absolute; top:0; bottom:0; background:var(--warn); opacity:.5; }
-  #tmG { position:absolute; top:0; bottom:0; background:#3ddc84; }
-  #tmMark { position:absolute; top:-2px; bottom:-2px; width:4px; margin-left:-2px; background:#fff; border-radius:2px; box-shadow:0 0 8px #fff; }
-  #tmTick { position:absolute; top:-2px; bottom:-2px; width:4px; margin-left:-2px; background:var(--ball); border-radius:2px; transition:opacity .3s; }
-  #pwFill { height:100%; width:0; background:linear-gradient(90deg,var(--good),var(--ball) 60%,var(--bad)); border-radius:6px; }
-  #qFill { height:100%; width:0; border-radius:6px; transition:width .25s var(--ease); }
-  #qFill.gold { background:var(--ball); } #qFill.good { background:var(--good); } #qFill.warn { background:var(--warn); } #qFill.bad { background:var(--bad); }
-  #shotInfo { text-align:center; font-size:15px; font-weight:600; color:#fff; text-shadow:0 2px 6px rgba(0,0,0,.8); opacity:0; transition:opacity .3s; min-height:22px; }
-  #shotInfo.show { opacity:1; }
-  #shotInfo b { font-family:var(--cond); font-weight:700; font-size:18px; letter-spacing:.03em; text-transform:uppercase; }
-  .chip { display:inline-block; padding:1px 8px; border-radius:6px; font-family:var(--cond); font-size:14px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--navy-900); margin-left:6px; vertical-align:1px; }
-  .chip.gold { background:var(--ball); } .chip.good { background:var(--good); } .chip.warn { background:var(--warn); } .chip.bad { background:var(--bad); color:#fff; }
+  /* etiqueta junto à mira */
+  #aimLbl { position:fixed; left:0; top:0; z-index:5; pointer-events:none; opacity:0; transition:opacity .15s; white-space:nowrap;
+    font-family:var(--cond); font-weight:800; font-size:15px; letter-spacing:.06em; text-transform:uppercase;
+    background:rgba(7,21,43,.86); color:#fff; padding:3px 9px; border-radius:6px; border-bottom:2px solid #fff; }
+  #aimLbl.show { opacity:1; }
+  #aimLbl.lob { border-color:#ffa94d; } #aimLbl.drop { border-color:#7cc8ff; } #aimLbl.sv { border-color:var(--ball); }
   #hint { position:fixed; left:calc(var(--sl) + 12px); right:calc(var(--sr) + 12px); bottom:calc(var(--sb) + 12px); z-index:5; pointer-events:none; text-align:center; transition:opacity .3s; }
   #hint span { background:rgba(7,21,43,.82); padding:8px 14px; border-radius:20px; display:inline-block; font-size:14.5px; font-weight:600; }
   .fade-out { opacity:0 !important; }
-  /* horizontal (PC ou telemóvel rodado): barras no canto para o centro do campo ficar livre */
-  @media (min-aspect-ratio: 1/1) {
-    #shotUI { left:calc(var(--sl) + 12px); right:auto; width:min(340px, 42vw); margin:0; bottom:calc(var(--sb) + 12px); }
-    #hint { left:auto; right:calc(var(--sr) + 12px); width:min(360px, 44vw); text-align:right; }
-  }
   /* ecrãs mais baixos (16:9): painéis mais compactos */
   @media (max-height:720px) {
-    #shotUI { bottom:calc(var(--sb) + 46px); gap:4px; }
-    .meter { padding:4px 8px 6px; } .meter .ml { margin-bottom:3px; font-size:12px; } .bar { height:10px; }
-    #shotInfo { min-height:18px; font-size:14px; } #shotInfo b { font-size:16px; }
     #coach { top:calc(var(--st) + 116px); } #coach span { font-size:13.5px; padding:8px 10px; }
     #hint span { padding:6px 12px; font-size:13.5px; }
     .wordmark { font-size:52px; } .card { gap:10px; } .panel { padding:10px; gap:8px; }
@@ -206,17 +185,7 @@
 <div id="toast"><div class="b-title"></div><div class="b-sub"></div></div>
 <div id="coach"><span></span></div>
 <div id="pops"></div>
-<div id="shotUI" class="hidden">
-  <div id="shotInfo"></div>
-  <div class="meter">
-    <div class="ml"><span>Cedo</span><span class="mid">Tempo · larga no verde</span><span>Tarde</span></div>
-    <div class="bar" id="tmBar"><div id="tmY"></div><div id="tmG"></div><div id="tmTick"></div><div id="tmMark"></div></div>
-  </div>
-  <div class="meter">
-    <div class="ml"><span id="pwLbl">Potência</span><span>Qualidade</span></div>
-    <div class="row2" style="gap:6px"><div class="bar" style="flex:2"><div id="pwFill"></div></div><div class="bar" style="flex:1"><div id="qFill"></div></div></div>
-  </div>
-</div>
+<div id="aimLbl"></div>
 <div id="hint" class="hidden"><span></span></div>
 
 <!-- Menu -->
@@ -240,8 +209,8 @@
     </div>
     <div class="panel howto">
       <div><svg class="i"><use href="#i-tap"/></svg><span><b>Toca</b> no campo para correr</span></div>
-      <div><svg class="i"><use href="#i-drag"/></svg><span><b>Arrasta</b> para apontar: ↑ topspin, ↓ balão</span></div>
-      <div><svg class="i"><use href="#i-release"/></svg><span><b>Larga no verde</b> para bater. No serviço: segura, aponta e larga</span></div>
+      <div><svg class="i"><use href="#i-drag"/></svg><span><b>Arrasta</b> para apontar: ↑ topspin · ↓ curto amorti · ↓ longo balão</span></div>
+      <div><svg class="i"><use href="#i-release"/></svg><span><b>Larga</b> quando o anel branco fechar sobre o verde. <b>Serviço:</b> aponta, solta para lançar, toca no verde</span></div>
     </div>
     <div class="row2" id="appRow">
       <button id="bInstall" class="hidden"><svg class="i"><use href="#i-install"/></svg>Instalar app</button>
@@ -274,7 +243,7 @@
     <p class="muted" id="joinStatus"></p>
     <div class="panel howto">
       <div><svg class="i"><use href="#i-tap"/></svg><span><b>Toca</b> no campo para correr</span></div>
-      <div><svg class="i"><use href="#i-drag"/></svg><span><b>Arrasta</b> para apontar e <b>larga no verde</b></span></div>
+      <div><svg class="i"><use href="#i-drag"/></svg><span><b>Arrasta</b> para apontar e <b>larga</b> quando o anel fechar</span></div>
     </div>
     <button class="ghost" data-back>Ir para o menu</button>
   </div>
@@ -314,6 +283,6 @@
 
 <script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
 <script src="vendor/peerjs.min.js"></script>
-<script type="module" src="game.js?v=6"></script>
+<script type="module" src="game.js?v=7"></script>
 </body>
 </html>
