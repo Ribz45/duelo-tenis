@@ -1,6 +1,7 @@
-// Jogadores realistas: avatares Microsoft Rocketbox (licença MIT) com as animações de corrida/espera da Quaternius (CC0)
-// transferidas para o esqueleto deles, e as poses de ténis por cima: pernas fletidas e base de apoio, rotação do tronco,
-// braços em IK com a raquete alinhada à bola, a cabeça a seguir a bola e o piscar de olhos.
+// Jogadores realistas: avatares Microsoft Rocketbox (licença MIT) com as animações de corrida da Quaternius (CC0) e as
+// pancadas de ténis captadas a jogadores reais (Tennis-MoCap, CC BY-SA 3.0): direita, esquerda a duas mãos, vóleis, serviço
+// e posição de espera. Por cima: pega da raquete calibrada por pancada, correção para a raquete encontrar a bola,
+// agachamento nas bolas baixas, a cabeça a seguir a bola e o piscar de olhos.
 // Mesma interface do boneco simples (player3d.js): update(dt, s), setLook(look).
 import * as THREE from './vendor/three.module.min.js';
 import { GLTFLoader } from './vendor/jsm/loaders/GLTFLoader.js';
@@ -23,10 +24,35 @@ export async function loadAthleteAssets(base = 'models/rb/') {
       k === 'f' ? loadImage(base + 'rb_f_hair.png') : null,
     ]);
     const tex = (img, srgb) => { const t = new THREE.Texture(img); if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; t.needsUpdate = true; return t; };
-    return { gltf, img:{ body, head, mask, headMask }, bodyN:tex(bodyN, false), headN:tex(headN, false), hair:hair && tex(hair, true) };
+    const tennis = await fetch(base + `tennis_${k}.json`).then(r => r.ok ? r.json() : null).then(j => j && decodeTennis(j)).catch(() => null);
+    return { gltf, img:{ body, head, mask, headMask }, bodyN:tex(bodyN, false), headN:tex(headN, false), hair:hair && tex(hair, true), tennis };
   };
   const [m, f] = await Promise.all([one('m'), one('f')]);
   return { m, f, kits:new Map() };
+}
+
+// capturas de ténis: rotações (int16) de 20 ossos por fotograma a 30 fps + posição da anca; pega e ponto de contacto por pancada
+function decodeTennis(j) {
+  const bin = s => { const b = atob(s), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u.buffer; };
+  const clips = {};
+  for (const [k, c] of Object.entries(j.clips)) {
+    const qi = new Int16Array(bin(c.q)), pi = new Int16Array(bin(c.p));
+    const q = new Float32Array(qi.length); for (let i = 0; i < qi.length; i++) q[i] = qi[i] / 32767;
+    const p = new Float32Array(pi.length); for (let i = 0; i < pi.length; i++) p[i] = pi[i] / 10;
+    clips[k] = { frames:c.frames, dur:(c.frames - 1) / j.fps, contact:c.contact, loop:c.loop, q, p,
+      grip:new THREE.Quaternion().fromArray(c.grip), cc:new V3().fromArray(c.cc) };
+  }
+  return { fps:j.fps, bones:j.bones, clips };
+}
+// mistura duas poses (quaterniões + posição da anca) para trocar de pancada sem saltos
+const _bq1 = new THREE.Quaternion(), _bq2 = new THREE.Quaternion();
+function blendPose(a, b, u, out) {
+  const n = a.length - 3;
+  for (let j = 0; j < n; j += 4) {
+    _bq1.set(a[j], a[j + 1], a[j + 2], a[j + 3]); _bq2.set(b[j], b[j + 1], b[j + 2], b[j + 3]); _bq1.slerp(_bq2, u);
+    out[j] = _bq1.x; out[j + 1] = _bq1.y; out[j + 2] = _bq1.z; out[j + 3] = _bq1.w;
+  }
+  for (let i = 0; i < 3; i++) out[n + i] = a[n + i] + (b[n + i] - a[n + i]) * u;
 }
 
 // ---------------------------------------------------------------- equipamento e tom de pele (máscaras: R camisola · G calções · B pele)
@@ -204,7 +230,37 @@ export class RealAthlete {
     this.yaw = 0; this.gait = 0; this.t = 0; this.headYaw = 0; this.headPitch = 0;
     this.blinkAt = 1 + Math.random() * 3; this.blink = 0;
     this.dbg = {};
+    // rasto do movimento da raquete (fita entre o coração e a ponta da cabeça) nas pancadas rápidas
+    this.SN = 12; this.sw = [];
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.SN * 2 * 3), 3));
+    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(this.SN * 2 * 4), 4));
+    const idx = []; for (let i = 0; i < this.SN - 1; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); } g.setIndex(idx);
+    this.swoosh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors:true, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide }));
+    this.swoosh.frustumCulled = false; this.swoosh.visible = false; this.swoosh.renderOrder = 3; scene.add(this.swoosh);
+    this.swK = 0;
     this.setLook(look);
+  }
+
+  // rasto da raquete: guarda os últimos pontos (coração e ponta) e desenha uma fita que se desvanece
+  updateSwoosh(dt, on) {
+    const r = this.racket; r.updateMatrixWorld(true);
+    const a = r.localToWorld(new V3(0, -0.27, 0)), b = r.localToWorld(new V3(0, -0.56, 0));
+    const last = this.sw[this.sw.length - 1];
+    const speed = last && dt > 0 ? b.distanceTo(last.b) / dt : 0;
+    this.swK += ((on ? clamp((speed - 7) / 9, 0, 1) : 0) - this.swK) * Math.min(1, dt * 18);
+    this.sw.push({ a, b }); if (this.sw.length > this.SN) this.sw.shift();
+    const N = this.sw.length, m = this.swoosh;
+    m.visible = this.swK > 0.03 && N > 2;
+    if (!m.visible) return;
+    const P = m.geometry.attributes.position.array, C = m.geometry.attributes.color.array;
+    for (let i = 0; i < this.SN; i++) {
+      const s = this.sw[Math.max(0, N - this.SN + i)], u = i / (this.SN - 1), al = u * u * 0.32 * this.swK;
+      P[i * 6] = s.a.x; P[i * 6 + 1] = s.a.y; P[i * 6 + 2] = s.a.z; P[i * 6 + 3] = s.b.x; P[i * 6 + 4] = s.b.y; P[i * 6 + 5] = s.b.z;
+      C[i * 8] = 1; C[i * 8 + 1] = 1; C[i * 8 + 2] = 1; C[i * 8 + 3] = al * 0.35;
+      C[i * 8 + 4] = 1; C[i * 8 + 5] = 1; C[i * 8 + 6] = 1; C[i * 8 + 7] = al;
+    }
+    m.geometry.attributes.position.needsUpdate = true; m.geometry.attributes.color.needsUpdate = true;
   }
 
   build(sex) {
@@ -269,7 +325,18 @@ export class RealAthlete {
     this.palmL = b.hL.worldToLocal(hWl.clone().addScaledVector(Fl, 0.075).addScaledVector(Pl, 0.02));
     // ossos que as camadas de ténis alteram: guardamos o valor da animação para o repor antes de cada atualização
     // (o misturador do three.js só reescreve um osso quando o valor da animação muda; sem isto as correções acumulavam)
-    this.modBones = [b.pelvis, ...b.spine, b.head, b.uaR, b.laR, b.hR, b.uaL, b.laL, b.hL, b.thL, b.caL, b.ftL, b.thR, b.caR, b.ftR];
+    // capturas de ténis (ossos, estado da mistura, pega por pancada)
+    this.tn = src.tennis;
+    this.tnRoot = model.getObjectByName('Bip01');
+    this.tnBones = this.tn ? this.tn.bones.map(n => model.getObjectByName(n)) : [];
+    const NB = this.tnBones.length * 4 + 3;
+    this.tOut = new Float32Array(NB); this.tTmp = new Float32Array(NB); this.tFrom = new Float32Array(NB);
+    this.tw = 0; this.tKey = null; this.tTime = 0; this.tBlend = 1;
+    this.gripDefault = this.racket.quaternion.clone(); this.gripClip = this.racket.quaternion.clone(); this.gripFrom = this.racket.quaternion.clone();
+    this.palmLocal = this.racket.position.clone().add(new V3(0, this.gripY, 0).applyQuaternion(this.racket.quaternion).multiplyScalar(this.racket.scale.x));
+    this.legIdx = this.tnBones.map(bn => /Thigh|Calf|Foot/.test(bn.name));
+    const set = new Set([b.pelvis, ...b.spine, b.head, b.uaR, b.laR, b.hR, b.uaL, b.laL, b.hL, b.thL, b.caL, b.ftL, b.thR, b.caR, b.ftR, ...this.tnBones, this.tnRoot].filter(Boolean));
+    this.modBones = [...set];
     this.saved = this.modBones.map(() => ({ q:new THREE.Quaternion(), p:new V3() })); this.hasSaved = false;
     // animações
     this.mixer = new THREE.AnimationMixer(model);
@@ -296,9 +363,35 @@ export class RealAthlete {
     let wantYaw = netYaw;
     if (!s.act && sp > 2.6 && s.mode !== 'serve') { const d = angDiff(Math.atan2(s.vx, s.vz), netYaw); if (Math.abs(d) < 2.0) wantYaw = netYaw + d * 0.85; }
     this.yaw += angDiff(wantYaw, this.yaw) * (1 - Math.exp(-9 * dt));
-    const jp = this.cur.jp || 0;                                            // salto do serviço (pés saem do chão)
+    const run0 = smooth(1.4, 3.4, sp);
+    // 0) captura de ténis: que pancada, em que instante, e quanto pesa
+    const T = this.tn && this.tn.clips;
+    let key = null, time = 0;
+    if (T && s.act && T[s.act.type]) { key = s.act.type; time = T[key].contact + (key === 'sv' && s.act.t < -0.3 ? -0.3 + (s.act.t + 0.3) * 2 : s.act.t); }
+    else if (T && T.ready && s.mode === 'ready' && !s.act) { key = 'ready'; time = this.t * 0.75; }
+    const want = key ? (s.act ? 1 : 1 - run0) : 0;
+    this.tw = s.snap ? want : this.tw + (want - this.tw) * (1 - Math.exp(-(want > this.tw ? 16 : 7) * dt));
+    if (key && key !== this.tKey) {                                         // troca de pancada: parte da pose atual
+      if (this.tKey && this.tw > 0.02 && !s.snap) { this.tFrom.set(this.tOut); this.gripFrom.copy(this.gripClip); this.tBlend = 0; } else this.tBlend = 1;
+      this.tKey = key;
+    }
+    if (key) this.tTime = time;
+    const tw = this.tKey ? this.tw : 0;
+    // correção para a raquete encontrar a bola: parte com um passo do corpo, parte com o braço (e agachamento)
+    const corr = this.corr || (this.corr = { on:false, dx:0, dy:0, dz:0, wr:0, wc:0, rx:0, rz:0 });
+    corr.on = false;
+    if (T && s.act && key && key !== 'ready' && key !== 'sv' && s.act.h !== undefined) {
+      const cc = T[key].cc, fhS = key === 'fh' || key === 'vf', lat = s.act.lat ?? Math.abs(cc.x);
+      corr.dx = (fhS ? -lat : lat) - cc.x; corr.dy = s.act.h - cc.y; corr.dz = (s.act.fw ?? cc.z) - cc.z;
+      corr.rx = clamp(corr.dx, -0.35, 0.35) * 0.75; corr.rz = clamp(corr.dz, -0.45, 0.45) * 0.85;
+      corr.wr = smooth(-0.55, -0.15, s.act.t) * (1 - smooth(0.25, 0.65, s.act.t)) * tw;
+      corr.wc = Math.exp(-((s.act.t / 0.2) ** 2)) * tw;
+      corr.on = true;
+    }
+    const jp = (this.cur.jp || 0) * (1 - tw);                                // salto do serviço (procedural, se não houver captura)
     this.frame.position.set(s.x, jp, s.z); this.frame.rotation.set(0, this.yaw, 0); this.frame.updateMatrixWorld(true);
     this.model.position.set(s.x, jp, s.z); this.model.rotation.set(0, this.yaw + this.faceOffset, 0);
+    if (corr.on && corr.wr > 0.001) this.model.position.add(tC.set(corr.rx * corr.wr, 0, corr.rz * corr.wr).applyQuaternion(this.frame.quaternion));
 
     // pose de ténis alvo
     const tg = this.tgt;
@@ -323,13 +416,32 @@ export class RealAthlete {
     if (this.hasSaved) this.modBones.forEach((bn, i) => { bn.quaternion.copy(this.saved[i].q); bn.position.copy(this.saved[i].p); });
     this.mixer.update(dt);
     this.modBones.forEach((bn, i) => { this.saved[i].q.copy(bn.quaternion); this.saved[i].p.copy(bn.position); }); this.hasSaved = true;
+    // 1b) pancadas reais por cima da corrida (pernas da captura só quando o jogador está quase parado)
+    if (tw > 0.001) {
+      const clip = T[this.tKey], legsW = s.act ? 1 - smooth(1.2, 3.0, sp) : 1 - run0;
+      this.sampleClip(clip, this.tTime, this.tTmp);
+      if (this.tBlend < 1) { this.tBlend = Math.min(1, this.tBlend + dt / 0.16); blendPose(this.tFrom, this.tTmp, smooth(0, 1, this.tBlend), this.tOut); }
+      else this.tOut.set(this.tTmp);
+      const o = this.tOut;
+      this.tnBones.forEach((bn, j) => { _qs.set(o[j * 4], o[j * 4 + 1], o[j * 4 + 2], o[j * 4 + 3]); bn.quaternion.slerp(_qs, tw * (this.legIdx[j] ? legsW : 1)); });
+      // deslocação da anca: o passo para a bola fica; depois da pancada volta suavemente ao sítio do jogador
+      // (no serviço só uma parte, porque o jogador real entra no campo)
+      const pi = this.tnBones.length * 4, at = s.act ? s.act.t : 0;
+      const hf = s.act ? (this.tKey === 'sv' ? 0.35 : 1) * (1 - smooth(0.2, 0.7, at)) : 1;
+      this.tnRoot.position.lerp(tA.set(o[pi] * hf, o[pi + 1], o[pi + 2] * hf), tw * legsW);
+      // pega da raquete: a da pancada (calibrada no contacto), misturada com a pega normal
+      this.gripClip.copy(this.tBlend < 1 ? qL.copy(this.gripFrom).slerp(clip.grip, smooth(0, 1, this.tBlend)) : clip.grip);
+    }
+    this.racket.quaternion.copy(this.gripDefault).slerp(this.gripClip, tw);
+    this.racket.position.copy(this.palmLocal).sub(tA.set(0, this.gripY, 0).applyQuaternion(this.racket.quaternion).multiplyScalar(this.racket.scale.x));
     this.model.updateMatrixWorld(true);
 
-    const run = smooth(1.4, 3.4, sp);
-    const wLegs = s.act ? 1 - smooth(2.6, 4.2, sp) : 1 - smooth(0.5, 2.0, sp);
-    const wBody = s.act ? 1 : 1 - 0.7 * run;
-    const wArmR = s.act ? 1 : 1 - 0.75 * run;
-    const wArmL = s.act ? 1 : cu.hg > 0.5 ? 1 - 0.8 * run : 1 - run;
+    // camadas procedurais (poses-chave) só onde não há captura
+    const run = run0, kP = 1 - tw;
+    const wLegs = (s.act ? 1 - smooth(2.6, 4.2, sp) : 1 - smooth(0.5, 2.0, sp)) * kP;
+    const wBody = (s.act ? 1 : 1 - 0.7 * run) * kP;
+    const wArmR = (s.act ? 1 : 1 - 0.75 * run) * kP;
+    const wArmL = (s.act ? 1 : cu.hg > 0.5 ? 1 - 0.8 * run : 1 - run) * kP;
     const fq = this.frame.quaternion;
     // bolas baixas: baixa mais a anca e inclina o tronco para a raquete lá chegar
     const low = s.act && s.act.h !== undefined ? clamp(0.95 - s.act.h, 0, 0.45) * Math.exp(-((s.act.t / 0.25) ** 2)) : 0;
@@ -388,7 +500,7 @@ export class RealAthlete {
     if (!D.noArms) this.arm(this.cal.R, tHr, tP.fromArray(cu.pr).applyQuaternion(fq), wArmR, qRacket, wArmR);
     // mão esquerda: livre, ou a agarrar a raquete onde ela está de facto (cabo na esquerda a duas mãos, coração na espera)
     tHl.fromArray(cu.hl); toW(tHl);
-    const gripW = D.noArms ? 0 : cu.hg * (s.act ? 1 : 1 - run);
+    const gripW = D.noArms ? 0 : cu.hg * (s.act ? 1 : 1 - run) * kP;
     if (gripW > 0.01) {
       this.racket.updateMatrixWorld(true); this.racket.getWorldQuaternion(qL);
       tG.set(0, this.gripY - cu.gd, 0); this.racket.localToWorld(tG);               // ponto da raquete onde a mão agarra
@@ -416,6 +528,14 @@ export class RealAthlete {
     }
     if (!D.noArms) this.arm(this.cal.L, tHl, tP.fromArray(cu.pl).applyQuaternion(fq), Math.max(wArmL, gripW), gripW > 0.01 ? qTmp : null, gripW);
 
+    // 5b) pancada real: a raquete vai ter com a bola (agacha nas bolas baixas, o braço ajusta o resto)
+    if (corr.on && corr.wc > 0.001 && !D.noCorr) {
+      const drop = clamp(-corr.dy - 0.08, 0, 0.3) * corr.wc;
+      if (drop > 0.002) this.crouch(drop);
+      tC.set(corr.dx - corr.rx * corr.wr / Math.max(tw, 1e-3), corr.dy + drop / Math.max(corr.wc, 1e-3), corr.dz - corr.rz * corr.wr / Math.max(tw, 1e-3)).multiplyScalar(corr.wc).applyQuaternion(fq);
+      if (tC.lengthSq() > 1e-6) { this.nudgeArm(this.cal.R, tC); if (this.tKey === 'bh') this.nudgeArm(this.cal.L, tC); }
+    }
+
     // 6) cabeça segue a bola
     let wantY = 0, wantP = 0.1;
     if (s.ball) {
@@ -428,8 +548,12 @@ export class RealAthlete {
     if (s.mode === 'happy') wantP = -0.2;
     const hk = 1 - Math.exp(-10 * dt);
     this.headYaw += (wantY - this.headYaw) * hk; this.headPitch += (wantP - this.headPitch) * hk;
-    if (!D.noHead) rotateWorld(b.head, qTmp.setFromAxisAngle(UPV, this.headYaw * 0.8), 1);
-    rotateWorld(b.head, qTmp.setFromAxisAngle(tC.set(1, 0, 0).applyQuaternion(fq).applyAxisAngle(UPV, this.headYaw * 0.8), this.headPitch * 0.7), 1);
+    const wHead = 1 - 0.75 * tw;                                            // na pancada real a cabeça já vem da captura
+    if (!D.noHead) rotateWorld(b.head, qTmp.setFromAxisAngle(UPV, this.headYaw * 0.8), wHead);
+    rotateWorld(b.head, qTmp.setFromAxisAngle(tC.set(1, 0, 0).applyQuaternion(fq).applyAxisAngle(UPV, this.headYaw * 0.8), this.headPitch * 0.7), wHead);
+
+    // 6b) rasto da raquete nas pancadas
+    this.updateSwoosh(s.snap ? 0 : dt, !!s.act && tw > 0.5);
 
     // 7) piscar de olhos (pálpebras de cima descem ~0,12 s, a intervalos irregulares)
     if (this.lids.length) {
@@ -441,6 +565,45 @@ export class RealAthlete {
         if (k > 0) { l.bn.parent.getWorldQuaternion(_qp); tC.set(0, -this.lidDrop * k, 0).applyQuaternion(_qp.invert()); l.bn.position.addScaledVector(tC, 1 / l.bn.parent.getWorldScale(tA).x); }
       }
     }
+  }
+
+  // amostra uma pancada captada (interpolação entre fotogramas; a espera vai e volta para não "saltar" no fim)
+  sampleClip(clip, t, out) {
+    const fps = this.tn.fps, NB = this.tnBones.length;
+    if (clip.loop) { const L = clip.dur, m = t % (2 * L); t = m > L ? 2 * L - m : m; }
+    const f = clamp(t * fps, 0, clip.frames - 1), i0 = Math.floor(f), i1 = Math.min(i0 + 1, clip.frames - 1), u = f - i0;
+    const q = clip.q, p = clip.p;
+    for (let j = 0; j < NB; j++) {
+      const a = (i0 * NB + j) * 4, c = (i1 * NB + j) * 4;
+      _qw.set(q[a], q[a + 1], q[a + 2], q[a + 3]).normalize(); _qp.set(q[c], q[c + 1], q[c + 2], q[c + 3]).normalize(); _qw.slerp(_qp, u);
+      out[j * 4] = _qw.x; out[j * 4 + 1] = _qw.y; out[j * 4 + 2] = _qw.z; out[j * 4 + 3] = _qw.w;
+    }
+    const k = NB * 4;
+    for (let i = 0; i < 3; i++) out[k + i] = p[i0 * 3 + i] + (p[i1 * 3 + i] - p[i0 * 3 + i]) * u;
+  }
+
+  // agachar (anca desce) mantendo os pés onde estão
+  crouch(drop) {
+    const b = this.b;
+    const legs = [[b.thL, b.caL, b.ftL], [b.thR, b.caR, b.ftR]].map(([th, ca, ft]) => ({ th, ca, ft, p:ft.getWorldPosition(new V3()), q:ft.getWorldQuaternion(new THREE.Quaternion()), k:ca.getWorldPosition(new V3()).sub(th.getWorldPosition(new V3())) }));
+    this.tnRoot.position.y -= drop / this.ws; this.tnRoot.updateMatrixWorld(true);
+    for (const L of legs) {
+      L.th.getWorldPosition(tA);
+      ik2(tA, L.p, this.len.th, this.len.ca, L.k.normalize(), tD1, tD2);
+      aimBone(L.th, L.ca, tD1, 1); aimBone(L.ca, L.ft, tD2, 1);
+      L.ca.getWorldQuaternion(_qp).invert().multiply(L.q); L.ft.quaternion.copy(_qp); L.ft.updateMatrixWorld(true);
+    }
+  }
+
+  // empurra a mão (pulso) por "off" (mundo) mantendo o cotovelo no mesmo plano e a orientação da mão (e da raquete)
+  nudgeArm(A, off) {
+    A.ua.getWorldPosition(tA); A.la.getWorldPosition(tP); A.hand.getWorldPosition(tT);
+    A.hand.getWorldQuaternion(qL);
+    tB.copy(tT).add(off);
+    tP.sub(tA).addScaledVector(tT.sub(tA).normalize(), -tP.dot(tT));         // cotovelo em relação à linha ombro–pulso
+    ik2(tA, tB, this.len.ua, this.len.la, tP.lengthSq() > 1e-8 ? tP.normalize() : tP.set(0, -1, 0), tD1, tD2);
+    aimBone(A.ua, A.la, tD1, 1); aimBone(A.la, A.hand, tD2, 1);
+    A.la.getWorldQuaternion(_qp).invert().multiply(qL); A.hand.quaternion.copy(_qp); A.hand.updateMatrixWorld(true);
   }
 
   // braço com IK de 2 ossos e pulso anatómico: se houver orientação desejada para a mão (qh),
@@ -477,5 +640,5 @@ export class RealAthlete {
   }
 
   setVisible(v) { this.model.visible = v; }
-  dispose() { this.scene.remove(this.model); this.mixer.stopAllAction(); }
+  dispose() { this.scene.remove(this.model); this.scene.remove(this.swoosh); this.mixer.stopAllAction(); }
 }

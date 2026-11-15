@@ -81,6 +81,8 @@
   .howto svg.i { color:var(--ball); width:24px; height:24px; }
   .foot { display:flex; align-items:center; justify-content:center; gap:8px; color:var(--muted); font-size:15px; }
   .foot svg.i { width:18px; height:18px; color:var(--ball); }
+  .credits { margin:0; font-size:11px; line-height:1.35; color:var(--muted); text-align:center; opacity:.85; }
+  .credits a { color:inherit; }
   .linkbox { background:var(--navy-950); border:2px dashed var(--navy-600); border-radius:var(--r); padding:14px; font-size:15px; text-align:center;
     word-break:break-all; user-select:text; -webkit-user-select:text; }
   .bracket { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:8px; }
@@ -235,6 +237,7 @@
       <button id="bUpdate" class="hidden primary"><svg class="i"><use href="#i-refresh"/></svg>Atualizar jogo</button>
     </div>
     <div class="foot" id="trophies"></div>
+    <p class="credits">Jogadores: Microsoft Rocketbox (MIT) · Pancadas captadas a tenistas reais: <a href="https://github.com/jdpulgarin/Tennis-MoCap" target="_blank" rel="noopener">Tennis-MoCap</a>, Pulgarin-Giraldo et al. (CC BY-SA 3.0) · Corrida: Quaternius (CC0)</p>
   </div>
 </div>
 

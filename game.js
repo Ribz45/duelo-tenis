@@ -7,7 +7,7 @@ import { HL, HW, SVC, BR, serverFor, servePositions as rulePositions, judgeFirst
 
 // ---------------------------------------------------------------- constantes
 const DW = 5.485, NET_H = 0.914, GRAV = 9.81;
-const STEP = 1 / 120, PLANE = 0.45, RUN_SPEED = 6.2, WALK_SPEED = 2.4;
+const STEP = 1 / 120, PLANE = 0.15, RUN_SPEED = 6.2, WALK_SPEED = 2.4;
 const TOSS_Y0 = 1.3, TOSS_V = 5.1, T_IDEAL = 0.56, T_FAIL = 1.05;   // contacto ideal a ≈2,6 m, onde a raquete chega
 const SURFACES = {
   hard:  { label:'Piso rápido', court:0x2b64ad, outer:0x37805a, e:0.68, f:0.80 },
@@ -326,7 +326,7 @@ function launch(idx, from, v, g, isServe, fromNet, q = 0.7, spin = 0.3) {
   M.phase = 'rally'; M.toss = null;
   for (const pl of P) { pl.prevD = null; pl.crossT = null; pl.whiff = false; pl.swipe = null; pl.incoming = null; pl.autoPlan = null; }
   P[idx].act = { type:isServe ? 'sv' : (volley || spin < -0.5) ? (fh ? 'vf' : 'vb') : (fh ? 'fh' : 'bh'), t:0, phase:'swing',
-    h:isServe ? undefined : from.y, lat:Math.abs(from.x - P[idx].pos.x) };
+    h:isServe ? undefined : from.y, lat:Math.abs(from.x - P[idx].pos.x), fw:PLANE };
   const speed = v.length(), strong = isServe ? speed > 41 : speed > 21.5;
   sfx.hit(clamp((speed - 8) / 30, 0, 1), camera.position.distanceTo(from), q >= 1);
   squash.t = 0; squash.k = 0.7; squash.axis.copy(v).normalize();
@@ -645,7 +645,7 @@ function planIntercept(pl, speed, delay) {
   let best = null, bestD = Infinity, loose = null;
   for (const sm of samples) {
     if (sm.b !== 1 || sm.vz * s <= 0 || sm.y > 2.2) continue;
-    const fx = sm.x - s * 0.72, bx = sm.x + s * 0.72;
+    const fx = sm.x - s * 0.74, bx = sm.x + s * 0.6;          // onde os jogadores reais batem: direita mais afastada, esquerda a duas mãos mais junta
     const standX = Math.abs(fx - pl.pos.x) <= Math.abs(bx - pl.pos.x) + 0.4 ? fx : bx;
     const standZ = sm.z + s * PLANE;
     if (Math.abs(standZ) < 1.5 || Math.abs(standZ) > HL + 5) continue;
@@ -768,9 +768,9 @@ function updateAct(pl, dt) {
   const inc = pl.incoming;
   if (M.phase === 'rally' && inc && inc.absT !== Infinity && !pl.whiff) {
     const rem = inc.absT - simTime;
-    if (rem < 0.6 && rem > -0.25) {
+    if (rem < (inc.b === 0 ? 0.6 : 0.85) && rem > -0.25) {          // direita/esquerda: preparação mais cedo, como os jogadores reais
       const fh = (inc.x - pl.pos.x) * pl.side >= 0;
-      pl.act = { type:inc.b === 0 ? (fh ? 'vf' : 'vb') : (fh ? 'fh' : 'bh'), t:Math.min(-0.03, -rem), phase:'prep', h:inc.y, lat:Math.abs(inc.x - pl.pos.x) };
+      pl.act = { type:inc.b === 0 ? (fh ? 'vf' : 'vb') : (fh ? 'fh' : 'bh'), t:Math.min(-0.03, -rem), phase:'prep', h:inc.y, lat:Math.abs(inc.x - pl.pos.x), fw:PLANE };
       return;
     }
   }

@@ -11,6 +11,7 @@ const FILES = [
   'models/rb/rb_m_mask.png', 'models/rb/rb_m_headmask.png',
   'models/rb/rb_f.glb', 'models/rb/rb_f_body.jpg', 'models/rb/rb_f_head.jpg', 'models/rb/rb_f_body_n.jpg', 'models/rb/rb_f_head_n.jpg',
   'models/rb/rb_f_mask.png', 'models/rb/rb_f_headmask.png', 'models/rb/rb_f_hair.png',
+  'models/rb/tennis_m.json', 'models/rb/tennis_f.json',
   'vendor/fonts/barlow-condensed-latin-600-normal.woff2', 'vendor/fonts/barlow-condensed-latin-700-normal.woff2',
   'vendor/fonts/barlow-condensed-latin-800-normal.woff2', 'vendor/fonts/barlow-condensed-latin-800-italic.woff2',
   'vendor/fonts/barlow-latin-500-normal.woff2', 'vendor/fonts/barlow-latin-600-normal.woff2', 'vendor/fonts/barlow-latin-700-normal.woff2',

@@ -7,3 +7,8 @@ máscaras para mudar a cor do equipamento e o tom de pele, animações transferi
 Animações de base (espera, andar, correr, sprint): Quaternius, Universal Animation Library (https://quaternius.com)
 Licença CC0 1.0 Universal (domínio público): https://creativecommons.org/publicdomain/zero/1.0/
 As poses de ténis (pancadas, serviço, raquete) são procedurais, feitas para este jogo.
+
+Pancadas de ténis (direita, esquerda, vóleis, serviço, espera): captura de movimento de jogadores reais,
+conjunto Tennis-MoCap (Pulgarin-Giraldo et al., https://github.com/jdpulgarin/Tennis-MoCap), licença CC BY-SA 3.0.
+Os ficheiros derivados models/rb/tennis_m.json e tennis_f.json mantêm a licença CC BY-SA 3.0
+(detalhes e citação em models/rb/TENNIS_MOCAP_LICENSE.md).
