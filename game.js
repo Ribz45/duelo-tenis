@@ -1,9 +1,9 @@
 import * as THREE from './vendor/three.module.min.js';
-import { Athlete, LOOK_PRESETS, TRACK_END } from './player3d.js?v=7';
-import { FX } from './fx.js?v=7';
-import { RealAthlete, loadAthleteAssets } from './athlete-gltf.js?v=7';
-import { sfx, unlock } from './audio.js?v=7';
-import { HL, HW, SVC, BR, serverFor, servePositions as rulePositions, judgeFirstBounce, isMatchOver, matchPointFor, outBy } from './rules.js?v=7';
+import { Athlete, LOOK_PRESETS, TRACK_END } from './player3d.js?v=8';
+import { FX } from './fx.js?v=8';
+import { RealAthlete, loadAthleteAssets, warmKits } from './athlete-gltf.js?v=8';
+import { sfx, unlock } from './audio.js?v=8';
+import { HL, HW, SVC, BR, serverFor, servePositions as rulePositions, judgeFirstBounce, isMatchOver, matchPointFor, outBy } from './rules.js?v=8';
 
 // ---------------------------------------------------------------- constantes
 const DW = 5.485, NET_H = 0.914, GRAV = 9.81;
@@ -253,11 +253,12 @@ function newPlayer(idx) {
 const P = [newPlayer(0), newPlayer(1)];
 P[0].fig = new Athlete(scene, LOOK_PRESETS[0]); P[0].lookIdx = 0;
 P[1].fig = new Athlete(scene, LOOK_PRESETS[1]); P[1].lookIdx = 1;
-// jogadores humanos (Quaternius): substituem os bonecos simples quando os ficheiros estiverem carregados
+// jogadores realistas (Rocketbox, MIT): substituem os bonecos simples quando os ficheiros estiverem carregados
 let athleteAssets = null;
 loadAthleteAssets().then(A => {
   athleteAssets = A;
   for (const p of P) { scene.remove(p.fig.root); p.fig = new RealAthlete(scene, A, LOOK_PRESETS[p.lookIdx]); }
+  warmKits(A, LOOK_PRESETS);
 }).catch(e => console.warn('Modelos 3D indisponíveis, a usar os jogadores simples', e));
 
 const M = { mode:'menu', me:0, level:1, surface:'hard', help:'normal', names:['Tu', 'CPU'], score:[0, 0], first:0, server:0,

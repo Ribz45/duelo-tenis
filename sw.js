@@ -1,15 +1,16 @@
 // Service worker: guarda o jogo no telemóvel para abrir sem internet.
 // Ao publicar uma versão nova, sobe VERSION (e o ?v= dos módulos) para os telemóveis a descarregarem.
-const VERSION = 'duelo-v7';
+const VERSION = 'duelo-v8';
 const FILES = [
   './', 'index.html', 'manifest.webmanifest',
-  'game.js?v=7', 'player3d.js?v=7', 'fx.js?v=7', 'audio.js?v=7', 'rules.js?v=7',
-  'athlete-gltf.js?v=7',
+  'game.js?v=8', 'player3d.js?v=8', 'fx.js?v=8', 'audio.js?v=8', 'rules.js?v=8',
+  'athlete-gltf.js?v=8',
   'vendor/three.module.min.js', 'vendor/peerjs.min.js',
   'vendor/jsm/loaders/GLTFLoader.js', 'vendor/jsm/utils/BufferGeometryUtils.js', 'vendor/jsm/utils/SkeletonUtils.js',
-  'models/char_male.glb', 'models/char_female.glb', 'models/anims.glb', 'models/fingers.json',
-  'models/tex/male_light.jpg', 'models/tex/male_dark.jpg', 'models/tex/female_light.jpg', 'models/tex/female_dark.jpg',
-  'models/tex/male_normal.jpg', 'models/tex/female_normal.jpg', 'models/tex/hair1.jpg', 'models/tex/hair2.jpg', 'models/tex/eyes.jpg',
+  'models/rb/rb_m.glb', 'models/rb/rb_m_body.jpg', 'models/rb/rb_m_head.jpg', 'models/rb/rb_m_body_n.jpg', 'models/rb/rb_m_head_n.jpg',
+  'models/rb/rb_m_mask.png', 'models/rb/rb_m_headmask.png',
+  'models/rb/rb_f.glb', 'models/rb/rb_f_body.jpg', 'models/rb/rb_f_head.jpg', 'models/rb/rb_f_body_n.jpg', 'models/rb/rb_f_head_n.jpg',
+  'models/rb/rb_f_mask.png', 'models/rb/rb_f_headmask.png', 'models/rb/rb_f_hair.png',
   'vendor/fonts/barlow-condensed-latin-600-normal.woff2', 'vendor/fonts/barlow-condensed-latin-700-normal.woff2',
   'vendor/fonts/barlow-condensed-latin-800-normal.woff2', 'vendor/fonts/barlow-condensed-latin-800-italic.woff2',
   'vendor/fonts/barlow-latin-500-normal.woff2', 'vendor/fonts/barlow-latin-600-normal.woff2', 'vendor/fonts/barlow-latin-700-normal.woff2',

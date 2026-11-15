@@ -1,5 +1,9 @@
-Personagens, penteados e animações: Quaternius (https://quaternius.com)
-- Universal Base Characters (versão Standard)
-- Universal Animation Library (versão Standard)
+Jogadores (modelos 3D, texturas e esqueleto): Microsoft Rocketbox Avatar Library
+https://github.com/microsoft/Microsoft-Rocketbox  ·  avatares Sports_Male_04 e Sports_Female_02
+Licença MIT (texto completo em models/rb/LICENSE.md).
+Alterações para o jogo: texturas reduzidas e convertidas para JPEG/PNG, malha indexada,
+máscaras para mudar a cor do equipamento e o tom de pele, animações transferidas para o esqueleto.
+
+Animações de base (espera, andar, correr, sprint): Quaternius, Universal Animation Library (https://quaternius.com)
 Licença CC0 1.0 Universal (domínio público): https://creativecommons.org/publicdomain/zero/1.0/
-Os ficheiros foram reduzidos para o jogo (só os clipes usados, texturas em JPEG mais pequenas).
+As poses de ténis (pancadas, serviço, raquete) são procedurais, feitas para este jogo.

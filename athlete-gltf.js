@@ -1,80 +1,78 @@
-// Jogadores com modelos humanos (Quaternius, CC0) e animações de corrida/espera, com as poses de ténis por cima:
-// pernas fletidas e base de apoio, rotação do tronco, braços em IK com a raquete alinhada à bola e a cabeça a seguir a bola.
+// Jogadores realistas: avatares Microsoft Rocketbox (licença MIT) com as animações de corrida/espera da Quaternius (CC0)
+// transferidas para o esqueleto deles, e as poses de ténis por cima: pernas fletidas e base de apoio, rotação do tronco,
+// braços em IK com a raquete alinhada à bola, a cabeça a seguir a bola e o piscar de olhos.
 // Mesma interface do boneco simples (player3d.js): update(dt, s), setLook(look).
 import * as THREE from './vendor/three.module.min.js';
 import { GLTFLoader } from './vendor/jsm/loaders/GLTFLoader.js';
 import * as SkeletonUtils from './vendor/jsm/utils/SkeletonUtils.js';
-import { TRACKS, sampleTrack, lerpPose, ik2, READY, WALK, HAPPY, SAD, SV_IDLE, strings, angDiff, clamp } from './player3d.js?v=7';
+import { TRACKS, sampleTrack, lerpPose, ik2, READY, WALK, HAPPY, SAD, SV_IDLE, strings, angDiff, clamp } from './player3d.js?v=8';
 
 const V3 = THREE.Vector3;
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
-const SHOES = 0xf4f5f7, SOCKS = 0xf2f2f2;
 
 // ---------------------------------------------------------------- carregar os ficheiros (uma vez)
 const loadImage = url => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
-export async function loadAthleteAssets(base = 'models/') {
-  const loader = new GLTFLoader(), tl = new THREE.TextureLoader();
-  const tex = (u, srgb = true) => new Promise((res, rej) => tl.load(base + 'tex/' + u, t => { t.flipY = false; if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; res(t); }, undefined, rej));
-  const [m, f, anims, fingers, mL, mD, fL, fD, mN, fN, h1, h2, eyes] = await Promise.all([
-    loader.loadAsync(base + 'char_male.glb'), loader.loadAsync(base + 'char_female.glb'), loader.loadAsync(base + 'anims.glb'),
-    fetch(base + 'fingers.json').then(r => r.json()),
-    loadImage(base + 'tex/male_light.jpg'), loadImage(base + 'tex/male_dark.jpg'), loadImage(base + 'tex/female_light.jpg'), loadImage(base + 'tex/female_dark.jpg'),
-    tex('male_normal.jpg', false), tex('female_normal.jpg', false), tex('hair1.jpg'), tex('hair2.jpg'), tex('eyes.jpg'),
-  ]);
-  return { m:{ gltf:m, skin:{ light:mL, dark:mD }, normal:mN }, f:{ gltf:f, skin:{ light:fL, dark:fD }, normal:fN },
-    clips:anims.animations, fingers, hair:{ 1:h1, 2:h2 }, eyes, regions:new Map() };
+export async function loadAthleteAssets(base = 'models/rb/') {
+  const loader = new GLTFLoader();
+  const one = async k => {
+    const [gltf, body, head, bodyN, headN, mask, headMask, hair] = await Promise.all([
+      loader.loadAsync(base + `rb_${k}.glb`),
+      loadImage(base + `rb_${k}_body.jpg`), loadImage(base + `rb_${k}_head.jpg`),
+      loadImage(base + `rb_${k}_body_n.jpg`), loadImage(base + `rb_${k}_head_n.jpg`),
+      loadImage(base + `rb_${k}_mask.png`), loadImage(base + `rb_${k}_headmask.png`),
+      k === 'f' ? loadImage(base + 'rb_f_hair.png') : null,
+    ]);
+    const tex = (img, srgb) => { const t = new THREE.Texture(img); if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; t.needsUpdate = true; return t; };
+    return { gltf, img:{ body, head, mask, headMask }, bodyN:tex(bodyN, false), headN:tex(headN, false), hair:hair && tex(hair, true) };
+  };
+  const [m, f] = await Promise.all([one('m'), one('f')]);
+  return { m, f, kits:new Map() };
 }
 
-// ---------------------------------------------------------------- roupa pintada na textura (pelos ossos de cada vértice)
-// 0 pele · 1 camisola · 2 calções · 3 meias · 4 sapatilhas
-function bodyRegions(mesh) {
-  const g = mesh.geometry, pos = g.attributes.position, si = g.attributes.skinIndex, sw = g.attributes.skinWeight;
-  const names = mesh.skeleton.bones.map(b => b.name), m4 = new THREE.Matrix4();
-  const bp = n => new V3().setFromMatrixPosition(m4.copy(mesh.skeleton.boneInverses[names.indexOf(n)]).invert());
-  const hipY = (bp('thigh_l').y + bp('thigh_r').y) / 2, kneeY = (bp('calf_l').y + bp('calf_r').y) / 2, ankleY = (bp('foot_l').y + bp('foot_r').y) / 2;
-  const arm = { l:[bp('upperarm_l'), bp('lowerarm_l')], r:[bp('upperarm_r'), bp('lowerarm_r')] };
-  const reg = new Uint8Array(pos.count), p = new V3(), d = new V3();
-  for (let i = 0; i < pos.count; i++) {
-    let best = 0, bw = -1;
-    for (let k = 0; k < 4; k++) { const w = sw.getComponent(i, k); if (w > bw) { bw = w; best = si.getComponent(i, k); } }
-    const b = names[best], y = pos.getY(i);
-    let r = 0;
-    if (/^spine_0[1-3]$|^clavicle_/.test(b)) r = 1;
-    else if (/^upperarm_/.test(b)) {
-      const [s, e] = arm[b.slice(-1)]; p.fromBufferAttribute(pos, i).sub(s); d.subVectors(e, s);
-      r = p.dot(d) / d.lengthSq() < 0.42 ? 1 : 0;                         // manga curta
-    }
-    else if (b === 'pelvis') r = y > hipY + 0.07 ? 1 : 2;
-    else if (/^thigh_/.test(b)) r = y > kneeY + (hipY - kneeY) * 0.45 ? 2 : 0;
-    else if (/^calf_/.test(b)) r = y < ankleY + 0.12 ? 3 : 0;
-    else if (/^(foot|ball)_/.test(b)) r = 4;
-    reg[i] = r;
+// ---------------------------------------------------------------- equipamento e tom de pele (máscaras: R camisola · G calções · B pele)
+function recolor(base, mask, look, skinAvg) {
+  const S = base.width, c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d', { willReadFrequently:true });
+  g.drawImage(mask, 0, 0, S, S); const M = g.getImageData(0, 0, S, S).data;
+  g.drawImage(base, 0, 0, S, S); const id = g.getImageData(0, 0, S, S), D = id.data;
+  let tS = 0, tN = 0, bS = 0, bN = 0, s0 = 0, s1 = 0, s2 = 0, sN = 0;
+  for (let i = 0; i < D.length; i += 4) {
+    const L = 0.2126 * D[i] + 0.7152 * D[i + 1] + 0.0722 * D[i + 2];
+    if (M[i] > 128) { tS += L; tN++; } if (M[i + 1] > 128) { bS += L; bN++; }
+    if (M[i + 2] > 128) { s0 += D[i]; s1 += D[i + 1]; s2 += D[i + 2]; sN++; }
   }
-  return reg;
+  const tA = tS / Math.max(1, tN), bA = bS / Math.max(1, bN);
+  const avg = skinAvg || (sN ? [s0 / sN, s1 / sN, s2 / sN] : [200, 160, 130]);
+  const C = h => { const k = new THREE.Color(h); return [k.r * 255, k.g * 255, k.b * 255]; };
+  const top = C(look.shirt), bot = C(look.shorts), skin = C(look.skin);
+  const r0 = skin[0] / avg[0], r1 = skin[1] / avg[1], r2 = skin[2] / avg[2];
+  for (let i = 0; i < D.length; i += 4) {
+    const t = M[i] / 255, b = M[i + 1] / 255, s = M[i + 2] / 255;
+    if (t + b + s < 0.01) continue;
+    const L = 0.2126 * D[i] + 0.7152 * D[i + 1] + 0.0722 * D[i + 2];
+    let r = D[i], gg = D[i + 1], bb = D[i + 2];
+    if (s > 0) { r += (Math.min(255, D[i] * r0) - r) * s; gg += (Math.min(255, D[i + 1] * r1) - gg) * s; bb += (Math.min(255, D[i + 2] * r2) - bb) * s; }
+    if (t > 0) { const sh = clamp(0.95 + 0.55 * (L - tA) / (tA + 12), 0.55, 1.2); r += (top[0] * sh - r) * t; gg += (top[1] * sh - gg) * t; bb += (top[2] * sh - bb) * t; }
+    if (b > 0) { const sh = clamp(0.95 + 0.55 * (L - bA) / (bA + 12), 0.55, 1.2); r += (bot[0] * sh - r) * b; gg += (bot[1] * sh - gg) * b; bb += (bot[2] * sh - bb) * b; }
+    D[i] = r; D[i + 1] = gg; D[i + 2] = bb;
+  }
+  g.putImageData(id, 0, 0);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  return { tex, skinAvg:avg };
 }
-function paintKit(img, mesh, reg, look) {
-  const S = 1024, c = document.createElement('canvas'); c.width = c.height = S;
-  const g = c.getContext('2d'); g.drawImage(img, 0, 0, S, S);
-  const layer = document.createElement('canvas'); layer.width = layer.height = S;
-  const L = layer.getContext('2d'), uv = mesh.geometry.attributes.uv, idx = mesh.geometry.index;
-  const cols = [null, look.shirt, look.shorts, SOCKS, SHOES].map(h => h == null ? null : '#' + new THREE.Color(h).getHexString());
-  L.lineJoin = 'round'; L.lineWidth = 2.5;
-  const n = idx ? idx.count : uv.count;
-  for (let t = 0; t < n; t += 3) {
-    const a = idx ? idx.getX(t) : t, b = idx ? idx.getX(t + 1) : t + 1, cc = idx ? idx.getX(t + 2) : t + 2;
-    const ra = reg[a], rb = reg[b], rc = reg[cc];
-    const r = ra === rb || ra === rc ? ra : rb === rc ? rb : Math.max(ra, rb, rc);
-    if (!r) continue;
-    L.fillStyle = L.strokeStyle = cols[r];
-    L.beginPath(); L.moveTo(uv.getX(a) * S, uv.getY(a) * S); L.lineTo(uv.getX(b) * S, uv.getY(b) * S); L.lineTo(uv.getX(cc) * S, uv.getY(cc) * S); L.closePath();
-    L.fill(); L.stroke();
+// prepara os equipamentos com tempo (um de cada vez, nos intervalos), para o início do jogo não engasgar no telemóvel
+export function warmKits(A, looks) {
+  const todo = looks.slice();
+  const next = () => { const l = todo.shift(); if (!l) return; kitFor(A, l.sex === 'f' ? 'f' : 'm', l); setTimeout(next, 250); };
+  setTimeout(next, 400);
+}
+function kitFor(A, sex, look) {
+  const key = [sex, look.shirt, look.shorts, look.skin].join('|');
+  if (!A.kits.has(key)) {
+    const src = A[sex], body = recolor(src.img.body, src.img.mask, look);
+    A.kits.set(key, { body:body.tex, head:recolor(src.img.head, src.img.headMask, look, body.skinAvg).tex });
   }
-  // um pouco do relevo original por cima da roupa (só onde há roupa)
-  L.globalCompositeOperation = 'source-atop'; L.globalAlpha = 0.16; L.filter = 'grayscale(1) contrast(1.3)';
-  L.drawImage(img, 0, 0, S, S);
-  g.drawImage(layer, 0, 0);
-  const t = new THREE.CanvasTexture(c); t.flipY = false; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
-  return t;
+  return A.kits.get(key);
 }
 
 // raquete (mesma do boneco simples): punho em y=0, cabeça para -y, face com normal +z
@@ -90,7 +88,7 @@ function makeRacket(frameMat) {
 }
 
 // ---------------------------------------------------------------- utilitários de ossos
-const _a = new V3(), _b = new V3(), _c = new V3(), _q = new THREE.Quaternion(), _qw = new THREE.Quaternion(), _qp = new THREE.Quaternion(), _qs = new THREE.Quaternion();
+const _a = new V3(), _b = new V3(), _q = new THREE.Quaternion(), _qw = new THREE.Quaternion(), _qp = new THREE.Quaternion(), _qs = new THREE.Quaternion();
 const _m = new THREE.Matrix4(), _x = new V3(), _y = new V3(), _z = new V3();
 // roda o osso para a direção (osso → filho) apontar para dir (mundo), com peso w sobre a pose atual
 function aimBone(bone, child, dir, w) {
@@ -120,7 +118,8 @@ function basisQuat(axis, face, out) {
 
 // ---------------------------------------------------------------- atleta
 const tA = new V3(), tB = new V3(), tC = new V3(), tT = new V3(), tP = new V3(), tHr = new V3(), tHl = new V3(), tRa = new V3(), tRf = new V3(), tD1 = new V3(), tD2 = new V3();
-const qTmp = new THREE.Quaternion(), qRacket = new THREE.Quaternion(), qInvR = new THREE.Quaternion(), UPV = new V3(0, 1, 0);
+const qTmp = new THREE.Quaternion(), qRacket = new THREE.Quaternion(), UPV = new V3(0, 1, 0);
+const BIP = n => 'Bip01_' + n;
 
 export class RealAthlete {
   constructor(scene, assets, look) {
@@ -129,6 +128,7 @@ export class RealAthlete {
     this.frameMat = new THREE.MeshStandardMaterial({ color:look.racket, roughness:0.35 });
     this.cur = lerpPose(READY, READY, 0, {}); this.tgt = lerpPose(READY, READY, 0, {});
     this.yaw = 0; this.gait = 0; this.t = 0; this.headYaw = 0; this.headPitch = 0;
+    this.blinkAt = 1 + Math.random() * 3; this.blink = 0;
     this.dbg = {};
     this.setLook(look);
   }
@@ -137,52 +137,45 @@ export class RealAthlete {
     if (this.model) { this.scene.remove(this.model); this.mixer?.stopAllAction(); }
     const A = this.assets, src = A[sex];
     const model = this.model = SkeletonUtils.clone(src.gltf.scene);
-    this.sex = sex; this.meshes = {}; this.hairs = [];
+    this.sex = sex;
+    // um material por tipo, partilhado por todas as partes da malha (o glTF divide a malha por material)
+    const hairMat = new THREE.MeshStandardMaterial({ map:src.hair, alphaTest:0.45, side:THREE.DoubleSide, roughness:0.8 });
+    const mk = (n, roughness) => { const m = new THREE.MeshStandardMaterial({ name:n, normalMap:n === 'head' ? src.headN : src.bodyN, roughness }); m.normalScale.set(0.8, 0.8); return m; };
+    this.mats = { body:mk('body', 0.7), head:mk('head', 0.58) };
     model.traverse(o => {
       if (!o.isSkinnedMesh) return;
       o.frustumCulled = false; o.castShadow = true;
-      const mn = o.material.name;
-      if (mn === 'body') this.meshes.body = o;
-      else if (mn === 'eyes') { o.material = new THREE.MeshStandardMaterial({ map:A.eyes, roughness:0.3 }); o.castShadow = false; }
-      else {
-        const isBrow = /Eyebrows/.test(o.name);
-        o.material = new THREE.MeshStandardMaterial({ map:A.hair[o.userData.hairTex || 1], roughness:0.75, side:THREE.DoubleSide });
-        if (isBrow && o.name !== 'Eyebrows') o.visible = false;             // sobrancelhas repetidas
-        else if (!isBrow) this.hairs.push(o);
-        if (isBrow) o.castShadow = false;
-      }
+      const list = (Array.isArray(o.material) ? o.material : [o.material]).map(m => m.name === 'opacity' ? hairMat : m.name === 'head' ? this.mats.head : this.mats.body);
+      o.material = list.length === 1 ? list[0] : list;
     });
-    const body = this.meshes.body;
-    const key = sex;
-    if (!A.regions.has(key)) A.regions.set(key, bodyRegions(body));
-    this.regions = A.regions.get(key);
-    body.material = new THREE.MeshStandardMaterial({ normalMap:src.normal, roughness:0.62 });
-    const B = name => model.getObjectByName(name);
+    const B = name => model.getObjectByName(BIP(name));
+    // a coluna que as camadas de ténis rodam começa acima das ancas (no Biped as pernas penduram-se em Bip01_Spine)
     this.b = {
-      pelvis:B('pelvis'), spine:[B('spine_01'), B('spine_02'), B('spine_03')], head:B('Head'),
-      uaR:B('upperarm_r'), laR:B('lowerarm_r'), hR:B('hand_r'), uaL:B('upperarm_l'), laL:B('lowerarm_l'), hL:B('hand_l'),
-      thL:B('thigh_l'), caL:B('calf_l'), ftL:B('foot_l'), baL:B('ball_l'), thR:B('thigh_r'), caR:B('calf_r'), ftR:B('foot_r'), baR:B('ball_r'),
+      pelvis:B('Pelvis'), spine:[B('Spine1'), B('Spine2'), B('Neck')], head:B('Head'),
+      uaR:B('R_UpperArm'), laR:B('R_Forearm'), hR:B('R_Hand'), uaL:B('L_UpperArm'), laL:B('L_Forearm'), hL:B('L_Hand'),
+      thL:B('L_Thigh'), caL:B('L_Calf'), ftL:B('L_Foot'), baL:B('L_Toe0'), thR:B('R_Thigh'), caR:B('R_Calf'), ftR:B('R_Foot'), baR:B('R_Toe0'),
     };
+    this.lids = ['LEyeBlinkTop', 'REyeBlinkTop'].map(B).filter(Boolean).map(bn => ({ bn, p0:bn.position.clone() }));
     // medidas na pose de ligação
     model.position.set(0, 0, 0); model.rotation.set(0, 0, 0); model.updateMatrixWorld(true);
     const wp = o => o.getWorldPosition(new V3()), b = this.b;
     this.len = { ua:wp(b.uaR).distanceTo(wp(b.laR)), la:wp(b.laR).distanceTo(wp(b.hR)), th:wp(b.thR).distanceTo(wp(b.caR)), ca:wp(b.caR).distanceTo(wp(b.ftR)) };
     this.hipH = wp(b.pelvis).y; this.ankleH = wp(b.ftR).y;
     this.faceOffset = wp(b.hL).x > 0 ? 0 : Math.PI;                       // o modelo olha para +z ou -z
-    // pose dos dedos (mão direita a agarrar, esquerda relaxada)
-    for (const [n, q] of Object.entries(A.fingers)) { const bone = B(n); if (bone) bone.quaternion.fromArray(q); }
-    // raquete na palma da mão direita, calibrada pelos ossos da mão
-    model.updateMatrixWorld(true);
-    const hW = wp(b.hR), F = wp(B('middle_01_r')).sub(hW).normalize(), Acr = wp(B('index_01_r')).sub(wp(B('pinky_01_r'))).normalize();
+    this.lidDrop = wp(B('LEyeBlinkTop') || b.head).distanceTo(wp(B('LEyeBlinkBottom') || b.head)) * 0.9;
+    // raquete na palma da mão direita, calibrada pelos ossos da mão (os dedos já vêm a agarrar)
+    const hW = wp(b.hR), F = wp(B('R_Finger2')).sub(hW).normalize(), Acr = wp(B('R_Finger1')).sub(wp(B('R_Finger4'))).normalize();
     const N = new V3().crossVectors(F, Acr).normalize();
     const axisW = Acr.clone().addScaledVector(F, 0.35).normalize();
     const hq = b.hR.getWorldQuaternion(new THREE.Quaternion()), hqi = hq.clone().invert();
     const qWorld = basisQuat(axisW, N, new THREE.Quaternion());
     this.racket = makeRacket(this.frameMat);
     this.racket.quaternion.copy(hqi).multiply(qWorld);
-    this.racket.position.copy(b.hR.worldToLocal(hW.clone().addScaledVector(F, 0.075).addScaledVector(N, -0.02)));
+    // a escala do modelo (cm → m) está acima dos ossos: a raquete compensa para ficar com o tamanho real
+    const ws = b.hR.getWorldScale(new V3()).x; this.racket.scale.setScalar(1 / ws);
+    this.racket.position.copy(b.hR.worldToLocal(hW.clone().addScaledVector(F, 0.07).addScaledVector(N, -0.02)));
     b.hR.add(this.racket);
-    qInvR.copy(this.racket.quaternion).invert(); this.qRacketInv = qInvR.clone();
+    this.qRacketInv = this.racket.quaternion.clone().invert();
     // ossos que as camadas de ténis alteram: guardamos o valor da animação para o repor antes de cada atualização
     // (o misturador do three.js só reescreve um osso quando o valor da animação muda; sem isto as correções acumulavam)
     this.modBones = [b.pelvis, ...b.spine, b.head, b.uaR, b.laR, b.hR, b.uaL, b.laL, b.hL, b.thL, b.caL, b.ftL, b.thR, b.caR, b.ftR];
@@ -190,7 +183,7 @@ export class RealAthlete {
     // animações
     this.mixer = new THREE.AnimationMixer(model);
     this.act = {};
-    for (const clip of A.clips) { const a = this.mixer.clipAction(clip); a.play(); a.setEffectiveWeight(0); this.act[clip.name] = a; }
+    for (const clip of src.gltf.animations) { const a = this.mixer.clipAction(clip); a.play(); a.setEffectiveWeight(0); this.act[clip.name] = a; }
     this.scene.add(model);
   }
 
@@ -198,14 +191,9 @@ export class RealAthlete {
     this.look = look;
     const sex = look.sex === 'f' ? 'f' : 'm';
     if (!this.model || this.sex !== sex) this.build(sex);
-    const src = this.assets[sex];
-    const old = this.meshes.body.material.map; if (old) old.dispose();
-    this.meshes.body.material.map = paintKit(src.skin[look.tone === 'dark' ? 'dark' : 'light'], this.meshes.body, this.regions, look);
-    this.meshes.body.material.needsUpdate = true;
-    for (const h of this.hairs) {
-      h.visible = h.name === look.hairStyle || (h.name === 'Hair_Beard' && !!look.beard);
-      h.material.color.setHex(look.hair).lerp(new THREE.Color(0xffffff), 0.35);
-    }
+    const kit = kitFor(this.assets, sex, look);
+    if (this.mats.body) { this.mats.body.map = kit.body; this.mats.body.needsUpdate = true; }
+    if (this.mats.head) { this.mats.head.map = kit.head; this.mats.head.needsUpdate = true; }
     this.frameMat.color.setHex(look.racket);
   }
 
@@ -322,6 +310,17 @@ export class RealAthlete {
     this.headYaw += (wantY - this.headYaw) * hk; this.headPitch += (wantP - this.headPitch) * hk;
     if (!D.noHead) rotateWorld(b.head, qTmp.setFromAxisAngle(UPV, this.headYaw * 0.8), 1);
     rotateWorld(b.head, qTmp.setFromAxisAngle(tC.set(1, 0, 0).applyQuaternion(fq).applyAxisAngle(UPV, this.headYaw * 0.8), this.headPitch * 0.7), 1);
+
+    // 7) piscar de olhos (pálpebras de cima descem ~0,12 s, a intervalos irregulares)
+    if (this.lids.length) {
+      if (this.t > this.blinkAt) { this.blink = 0.12; this.blinkAt = this.t + 2 + Math.random() * 3.5; }
+      this.blink = Math.max(0, this.blink - dt);
+      const k = this.blink > 0 ? Math.sin(this.blink / 0.12 * Math.PI) : 0;
+      for (const l of this.lids) {
+        l.bn.position.copy(l.p0);
+        if (k > 0) { l.bn.parent.getWorldQuaternion(_qp); tC.set(0, -this.lidDrop * k, 0).applyQuaternion(_qp.invert()); l.bn.position.addScaledVector(tC, 1 / l.bn.parent.getWorldScale(tA).x); }
+      }
+    }
   }
 
   arm(ua, la, hand, target, pole, w) {
