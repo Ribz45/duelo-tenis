@@ -243,7 +243,7 @@ export class RealAthlete {
   }
 
   // rasto da raquete: guarda os últimos pontos (coração e ponta) e desenha uma fita que se desvanece
-  updateSwoosh(dt, on) {
+  updateSwoosh(dt, on, perfect) {
     const r = this.racket; r.updateMatrixWorld(true);
     const a = r.localToWorld(new V3(0, -0.27, 0)), b = r.localToWorld(new V3(0, -0.56, 0));
     const last = this.sw[this.sw.length - 1];
@@ -257,8 +257,9 @@ export class RealAthlete {
     for (let i = 0; i < this.SN; i++) {
       const s = this.sw[Math.max(0, N - this.SN + i)], u = i / (this.SN - 1), al = u * u * 0.32 * this.swK;
       P[i * 6] = s.a.x; P[i * 6 + 1] = s.a.y; P[i * 6 + 2] = s.a.z; P[i * 6 + 3] = s.b.x; P[i * 6 + 4] = s.b.y; P[i * 6 + 5] = s.b.z;
-      C[i * 8] = 1; C[i * 8 + 1] = 1; C[i * 8 + 2] = 1; C[i * 8 + 3] = al * 0.35;
-      C[i * 8 + 4] = 1; C[i * 8 + 5] = 1; C[i * 8 + 6] = 1; C[i * 8 + 7] = al;
+      const cr = perfect ? 0.35 : 1, cb = perfect ? 0.45 : 1;               // pancada perfeita: rasto verde (como no Tennis Arena)
+      C[i * 8] = cr; C[i * 8 + 1] = 1; C[i * 8 + 2] = cb; C[i * 8 + 3] = al * 0.35;
+      C[i * 8 + 4] = cr; C[i * 8 + 5] = 1; C[i * 8 + 6] = cb; C[i * 8 + 7] = perfect ? Math.min(1, al * 1.8) : al;
     }
     m.geometry.attributes.position.needsUpdate = true; m.geometry.attributes.color.needsUpdate = true;
   }
@@ -553,7 +554,7 @@ export class RealAthlete {
     rotateWorld(b.head, qTmp.setFromAxisAngle(tC.set(1, 0, 0).applyQuaternion(fq).applyAxisAngle(UPV, this.headYaw * 0.8), this.headPitch * 0.7), wHead);
 
     // 6b) rasto da raquete nas pancadas
-    this.updateSwoosh(s.snap ? 0 : dt, !!s.act && tw > 0.5);
+    this.updateSwoosh(s.snap ? 0 : dt, !!s.act && tw > 0.5, !!(s.act && s.act.q >= 1));
 
     // 7) piscar de olhos (pálpebras de cima descem ~0,12 s, a intervalos irregulares)
     if (this.lids.length) {

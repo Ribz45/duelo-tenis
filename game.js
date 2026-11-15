@@ -15,14 +15,14 @@ const SURFACES = {
   grass: { label:'Relva', court:0x5a9a3a, outer:0x4b8731, e:0.6, f:0.86 },
 };
 const LEVELS = [
-  { label:'Fácil',   q:0.45, speed:4.4, react:0.42, pow:[0.2, 0.45], width:1.8, depth:[6.8, 9.2],  svSig:0.13, svPow:0.45, miss:0.14 },
-  { label:'Médio',   q:0.66, speed:5.2, react:0.28, pow:[0.35, 0.7], width:2.8, depth:[7.5, 10.3], svSig:0.08, svPow:0.7,  miss:0.07 },
-  { label:'Difícil', q:0.84, speed:6.0, react:0.16, pow:[0.55, 0.9], width:3.5, depth:[8.4, 11.0], svSig:0.05, svPow:0.9,  miss:0.035 },
+  { label:'Fácil',   q:0.45, speed:5.6, react:0.3, pow:[0.2, 0.45], width:1.8, depth:[6.8, 9.2],  svSig:0.13, svPow:0.45, miss:0.1 },
+  { label:'Médio',   q:0.66, speed:6.6, react:0.17, pow:[0.35, 0.7], width:2.6, depth:[7.5, 10.1], svSig:0.08, svPow:0.7,  miss:0.07 },
+  { label:'Difícil', q:0.84, speed:7.4, react:0.1, pow:[0.55, 0.9], width:3.1, depth:[8.2, 10.5], svSig:0.05, svPow:0.9,  miss:0.035 },
 ];
 const HELPS = {
   total:  { label:'Total',  green:0.09, auto:true,  recover:true,  drift:1, magnet:3, fine:1.6, preview:true,  marker:true,  err:0.65, reach:1.9 },
-  normal: { label:'Normal', green:0.065, auto:false, recover:false, drift:0.8, magnet:3.0, fine:1.4, preview:true,  marker:true,  err:1.0,  reach:1.8 },
-  pro:    { label:'Pro',    green:0.05, auto:false, recover:false, drift:0.55, magnet:1.5, fine:1.1, preview:false, marker:false, err:1.12, reach:1.6 },
+  normal: { label:'Normal', green:0.065, auto:false, recover:false, drift:1, magnet:3.0, fine:1.6, preview:true,  marker:true,  err:1.0,  reach:1.8 },
+  pro:    { label:'Pro',    green:0.05, auto:false, recover:false, drift:0.7, magnet:1.5, fine:1.1, preview:false, marker:false, err:1.12, reach:1.6 },
 };
 const TOUR = [
   { round:'Quartos-de-final', opp:'Tiago Rocha',   level:0, surface:'clay',  look:2 },
@@ -226,7 +226,33 @@ function ringMesh(color, r1, r2) {
   m.rotation.x = -Math.PI / 2; m.position.y = 0.006; m.renderOrder = 2; scene.add(m); return m;
 }
 const tapRing = ringMesh(0xffffff, 0.28, 0.36);
-const landRing = ringMesh(0xd7f34a, 0.16, 0.26);
+// anel de queda (estilo Tennis Arena): onde a bola do adversário vai bater; o arco vermelho enche até ao ressalto
+const landRing = ringMesh(0xffffff, 0.36, 0.46);
+const landFill = (() => {
+  const g = new THREE.RingGeometry(0.36, 0.46, 48, 1, Math.PI / 2, -Math.PI * 2);   // começa em cima, roda no sentido dos ponteiros
+  const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color:0xff4a2e, transparent:true, opacity:0, depthWrite:false, side:THREE.DoubleSide }));
+  m.rotation.x = -Math.PI / 2; m.position.y = 0.007; m.renderOrder = 3; scene.add(m); return m;
+})();
+// disco suave no campo do adversário: onde a tua bola vai cair
+const discTex = canvasTex(64, 64, (g, w, h) => {
+  const gr = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+  gr.addColorStop(0, 'rgba(255,255,255,.9)'); gr.addColorStop(0.65, 'rgba(255,255,255,.6)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, w, h);
+});
+const shotDisc = new THREE.Mesh(new THREE.CircleGeometry(0.85, 32), new THREE.MeshBasicMaterial({ map:discTex, transparent:true, opacity:0, depthWrite:false }));
+shotDisc.rotation.x = -Math.PI / 2; shotDisc.position.y = 0.006; shotDisc.renderOrder = 2; scene.add(shotDisc);
+const LAND = { t0:0, t1:0 };
+function updateLandMarks(dt) {
+  const a = landRing.material.opacity;
+  landFill.material.opacity = a > 0.01 ? 0.95 : 0;
+  if (a > 0.01) {
+    const u = clamp((simTime - LAND.t0) / Math.max(0.05, LAND.t1 - LAND.t0), 0, 1);
+    const n = landFill.geometry.index.count; landFill.geometry.setDrawRange(0, Math.floor(n * u / 6) * 6);
+    const k = 0.75 + 0.45 * u; landRing.scale.setScalar(k); landFill.scale.setScalar(k);
+    landFill.position.x = landRing.position.x; landFill.position.z = landRing.position.z;
+  }
+  if (shotDisc.material.opacity > 0 && (!B.live || B.bounces > 0)) shotDisc.material.opacity = Math.max(0, shotDisc.material.opacity - dt * 3);
+}
 const aimRing = ringMesh(0xffffff, 0.86, 1.0);
 const aimDot = ringMesh(0xffffff, 0, 0.09);
 // brilho suave na bola no instante ideal do swipe (só nas ajudas Total e Normal)
@@ -278,7 +304,7 @@ const authority = () => M.mode !== 'online' || (B.hitter >= 0 && other(B.hitter)
 const H = () => HELPS[M.help] || HELPS.normal;
 const errMul = idx => (M.mode === 'online' || idx !== M.me) ? 1 : H().err;
 const greenWin = () => (M.mode === 'online' ? HELPS.normal.green : H().green);
-const reachOf = pl => ((pl.isCPU || pl.remote || M.mode === 'online') ? 1.6 : H().reach) + (B.isServe ? 0.25 : 0);   // na resposta ao serviço estica-se mais
+const reachOf = pl => (pl.isCPU ? 1.8 : (pl.remote || M.mode === 'online') ? 1.75 : H().reach) + (B.isServe ? 0.25 : 0);   // na resposta ao serviço estica-se mais
 // dentro da janela ideal = perfeito (pancada vencedora possível); logo a seguir "Bom"; depois cai depressa
 function timingQ(err, g) { const a = Math.abs(err); return a <= g ? 1 : clamp(0.88 - (a - g) / 0.22, 0, 0.88); }
 function timingLabel(q, err) { if (q >= 1) return 'Perfeito'; if (q >= 0.6) return 'Bom'; if (q >= 0.3) return err < 0 ? 'Cedo' : 'Tarde'; return err < 0 ? 'Muito cedo' : 'Muito tarde'; }
@@ -340,21 +366,23 @@ function launch(idx, from, v, g, isServe, fromNet, q = 0.7, spin = 0.3) {
     if (H().recover && !isServe) { const me = P[idx]; me.target = { x:0, z:me.side * (HL + 0.5) }; me.walk = false; }
   } else M.lastMine = {};
   if (M.mode === 'online' && idx === M.me && !fromNet) netSend({ t:'hit', p:[from.x, from.y, from.z], v:[v.x, v.y, v.z], g, s:isServe ? 1 : 0, sp:spin });
-  landRing.material.opacity = 0;
+  landRing.material.opacity = 0; shotDisc.material.opacity = 0;
+  const fb = predictBall(3).find(s => s.b === 1);
   if (idx !== M.me && H().marker) {
-    const fb = predictBall(3).find(s => s.b === 1);
-    if (fb && Math.sign(fb.z) === sideOf(M.me)) { landRing.position.set(fb.x, 0.006, fb.z); landRing.material.opacity = 0.8; }
+    if (fb && Math.sign(fb.z) === sideOf(M.me)) { landRing.position.set(fb.x, 0.006, fb.z); landRing.material.opacity = 0.55; LAND.t0 = simTime; LAND.t1 = simTime + fb.t; }
   }
+  if (idx === M.me && fb && Math.sign(fb.z) !== sideOf(M.me) && H().preview) { shotDisc.position.set(fb.x, 0.006, fb.z); shotDisc.material.opacity = 1; }
+  P[idx].act.q = q;                                          // a figura pinta o rasto de verde nas pancadas perfeitas
 }
 
 // pancada: alvo escolhido (tx,tz), potência e qualidade do tempo → trajetória com erro
 function shotSpec(type, power, q, volley) {
   if (type === 'lob') return { speedH:7.5 + power * 2.8, g:GRAV + 0.6, margin:1.8, spin:0.2 };
   if (type === 'drop') return { g:GRAV - 1.2, apex:1.75 + power * 0.35, spin:-0.9 };
-  // pancada perfeita e com potência: até +45% de velocidade e trajetória mais tensa (dá para fazer vencedores)
-  const boost = q >= 1 ? 1 + 0.45 * power : 1;
-  return { speedH:(10 + power * 8.5 + q * 1.5 - (volley ? 1.5 : 0)) * boost, g:GRAV + 2.5 + power * 4,
-    margin:(0.6 - power * 0.35) * (q >= 1 ? 0.75 : 1), spin:0.35 + power * 0.6 };
+  // ritmo do Tennis Arena: bolas rápidas e tensas (≈0,65–0,9 s até ao ressalto), o topspin faz a bola cair dentro do campo
+  const boost = q >= 1 ? 1 + 0.22 * power : 1;
+  return { speedH:(19 + power * 13 + q * 2 - (volley ? 3 : 0)) * boost, g:GRAV + 4 + power * 7,
+    margin:(0.55 - power * 0.3) * (q >= 1 ? 0.8 : 1), spin:0.4 + power * 0.6 };
 }
 // amorti: arco curto que passa a rede e cai logo a seguir
 function makeDrop(from, tx, tz, g, apex) {
@@ -370,7 +398,7 @@ function dropApex(from, tx, tz, g, apex) {
 function executeShot(idx, sh) {
   const pl = P[idx], s = pl.side, r = -s;
   const from = B.p.clone(); if (from.y < 0.3) from.y = 0.3;
-  const press = clamp((B.v.length() - 15) / 18, 0, 1);
+  const press = clamp((B.v.length() - 22) / 18, 0, 1);
   const spec = shotSpec(sh.type, sh.power, sh.q, B.bounces === 0);
   const em = errMul(idx), q = sh.q, perfect = q >= 1;
   if (sh.type === 'drop') {
@@ -651,8 +679,11 @@ function planIntercept(pl, speed, delay) {
     const standZ = sm.z + s * PLANE;
     if (Math.abs(standZ) < 1.5 || Math.abs(standZ) > HL + 5) continue;
     const d = Math.hypot(standX - pl.pos.x, standZ - pl.pos.z);
+    // como um jogador real: anda para o lado e fica fundo; avançar para a rede custa mais, a bola à altura da cintura é a preferida
+    const fwd = Math.max(0, (pl.pos.z - standZ) * s), back = Math.max(0, (standZ - pl.pos.z) * s);
+    const cost = Math.abs(standX - pl.pos.x) + fwd * 1.6 + back * 0.5 + Math.abs(sm.y - 1.0) * 0.8;
     if (d / speed > sm.t - delay - 0.05) continue;
-    if (sm.y >= 0.5 && sm.y <= 1.5) { if (d < bestD) { bestD = d; best = { x:standX, z:standZ }; } }
+    if (sm.y >= 0.5 && sm.y <= 1.5) { if (cost < bestD) { bestD = cost; best = { x:standX, z:standZ }; } }
     else if (!loose) loose = { x:standX, z:standZ };
   }
   if (best || loose) return best || loose;
@@ -731,7 +762,7 @@ function cpuTryHit(pl) {
   }
   let depth = lob ? rand(9, 10.8) : rand(L.depth[0], L.depth[1]);
   // erros não forçados: mais prováveis quando a bola vem forte
-  const press = clamp((B.v.length() - 15) / 10, 0, 1);
+  const press = clamp((B.v.length() - 24) / 14, 0, 1);            // bola muito rápida (ritmo novo): mais erros
   if (Math.random() < L.miss + press * 0.15) {
     const kind = Math.random();
     if (kind < 0.4) depth = rand(12.2, 13.2);
@@ -829,7 +860,10 @@ function updateCamera(dt, t) {
   // atrás do jogador, sem passar a rede nem fugir demasiado para trás
   const zWant = s * clamp(Math.abs(me.pos.z) + CLOSE.back, HL - 1, HL + 9);
   CLOSE.z += (zWant - CLOSE.z) * Math.min(1, dt * 3);
-  if (M.cam === 'close') { _cp.set(CLOSE.x, CLOSE.h, CLOSE.z); _cl.set(CLOSE.x * 0.55, CLOSE.lookY, CLOSE.z - s * (CLOSE.back + CLOSE.look)); }
+  // como no Tennis Arena: a câmara roda para o lado da jogada (bola ou adversário), vendo o campo na diagonal
+  const focusX = B.live && M.phase === 'rally' ? (Math.sign(B.p.z) === s ? B.p.x : (B.p.x + P[other(M.me)].pos.x) / 2) : P[other(M.me)].pos.x;
+  CLOSE.bias = (CLOSE.bias || 0) + (clamp(focusX - px, -4.5, 4.5) - (CLOSE.bias || 0)) * Math.min(1, dt * 2.2);
+  if (M.cam === 'close') { _cp.set(CLOSE.x - CLOSE.bias * 0.3, CLOSE.h, CLOSE.z); _cl.set(CLOSE.x * 0.55 + CLOSE.bias * 0.55, CLOSE.lookY, CLOSE.z - s * (CLOSE.back + CLOSE.look)); }
   else { _cp.set(CAM.x, CAM.h, s * (HL + CAM.back)); _cl.set(CAM.x * 0.4, 0, -s * CAM.look); }
   if (camFrom.k < 1) {                                            // transição suave entre câmaras
     camFrom.k = Math.min(1, camFrom.k + dt * 2.2);
@@ -1105,7 +1139,7 @@ document.addEventListener('click', e => {
 });
 $('quit').addEventListener('click', () => { if (M.mode !== 'online' || confirm('Sair do duelo?')) goMenu(); });
 $('camBtn').addEventListener('click', () => { setCam(M.cam === 'close' ? 'tv' : 'close'); if (M.cam === 'close') toast('Câmara perto', 'info', 'Toca outra vez para a vista TV', 1000); });
-setCam(store.get('cam', 'tv'), false);
+setCam(store.get('cam', 'close'), false);                 // por omissão a câmara perto, atrás do jogador (como no Tennis Arena)
 
 $('bQuick').addEventListener('click', () => {
   audio(); saveName(myName());
@@ -1316,7 +1350,7 @@ function frame(now, manual) {
   fx.update(dt);
   tapRing.material.opacity = Math.max(0, tapRing.material.opacity - dt * 1.2);
   if (inMatch() && M.phase !== 'over') showAimVisuals(); else { aimRing.material.opacity = aimDot.material.opacity = 0; prevLine.visible = false; }
-  updateHalo(dt, bp);
+  updateHalo(dt, bp); updateLandMarks(dt);
   updatePops(dt);
   updateCamera(dt, now / 1000);
   renderer.render(scene, camera);
