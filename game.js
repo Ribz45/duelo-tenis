@@ -1,9 +1,9 @@
 import * as THREE from './vendor/three.module.min.js';
-import { Athlete, LOOK_PRESETS, TRACK_END } from './player3d.js?v=9';
-import { FX } from './fx.js?v=9';
-import { RealAthlete, loadAthleteAssets, warmKits } from './athlete-gltf.js?v=9';
-import { sfx, unlock } from './audio.js?v=9';
-import { HL, HW, SVC, BR, serverFor, servePositions as rulePositions, judgeFirstBounce, isMatchOver, matchPointFor, outBy } from './rules.js?v=9';
+import { Athlete, LOOK_PRESETS, TRACK_END } from './player3d.js?v=10';
+import { FX } from './fx.js?v=10';
+import { RealAthlete, loadAthleteAssets, warmKits } from './athlete-gltf.js?v=10';
+import { sfx, unlock } from './audio.js?v=10';
+import { HL, HW, SVC, BR, serverFor, servePositions as rulePositions, judgeFirstBounce, isMatchOver, matchPointFor, outBy } from './rules.js?v=10';
 
 // ---------------------------------------------------------------- constantes
 const DW = 5.485, NET_H = 0.914, GRAV = 9.81;
@@ -15,14 +15,14 @@ const SURFACES = {
   grass: { label:'Relva', court:0x5a9a3a, outer:0x4b8731, e:0.6, f:0.86 },
 };
 const LEVELS = [
-  { label:'Fácil',   q:0.45, speed:4.4, react:0.42, pow:[0.2, 0.45], width:1.8, depth:[6.8, 9.2],  svSig:0.13, svPow:0.45, miss:0.22 },
-  { label:'Médio',   q:0.66, speed:5.2, react:0.28, pow:[0.35, 0.7], width:2.8, depth:[7.5, 10.3], svSig:0.08, svPow:0.7,  miss:0.14 },
-  { label:'Difícil', q:0.84, speed:6.0, react:0.16, pow:[0.55, 0.9], width:3.5, depth:[8.4, 11.0], svSig:0.05, svPow:0.9,  miss:0.08 },
+  { label:'Fácil',   q:0.45, speed:4.4, react:0.42, pow:[0.2, 0.45], width:1.8, depth:[6.8, 9.2],  svSig:0.13, svPow:0.45, miss:0.14 },
+  { label:'Médio',   q:0.66, speed:5.2, react:0.28, pow:[0.35, 0.7], width:2.8, depth:[7.5, 10.3], svSig:0.08, svPow:0.7,  miss:0.07 },
+  { label:'Difícil', q:0.84, speed:6.0, react:0.16, pow:[0.55, 0.9], width:3.5, depth:[8.4, 11.0], svSig:0.05, svPow:0.9,  miss:0.035 },
 ];
 const HELPS = {
   total:  { label:'Total',  green:0.09, auto:true,  recover:true,  drift:1, magnet:3, fine:1.6, preview:true,  marker:true,  err:0.65, reach:1.9 },
-  normal: { label:'Normal', green:0.065, auto:false, recover:false, drift:0.5, magnet:2.4, fine:1.1, preview:true,  marker:true,  err:1.0,  reach:1.65 },
-  pro:    { label:'Pro',    green:0.05, auto:false, recover:false, drift:0.35, magnet:0, fine:0.45, preview:false, marker:false, err:1.12, reach:1.5 },
+  normal: { label:'Normal', green:0.065, auto:false, recover:false, drift:0.8, magnet:3.0, fine:1.4, preview:true,  marker:true,  err:1.0,  reach:1.8 },
+  pro:    { label:'Pro',    green:0.05, auto:false, recover:false, drift:0.55, magnet:1.5, fine:1.1, preview:false, marker:false, err:1.12, reach:1.6 },
 };
 const TOUR = [
   { round:'Quartos-de-final', opp:'Tiago Rocha',   level:0, surface:'clay',  look:2 },
@@ -383,8 +383,9 @@ function executeShot(idx, sh) {
     launch(idx, from, v, spec.g, false, false, q, spec.spin);
     return v;
   }
-  const sig = (sh.type === 'lob' ? 0.3 + (1 - q) * 1.1 + press * 0.35 : 0.1 + (1 - q) * 1.4 + sh.power * 0.35 + press * 0.45) * em * (perfect ? 0.45 : 1);
-  const pull = Math.sign(sh.err || 0) * (fhSide(pl) ? 1 : -1) * s * (1 - q) * 0.9 * em;
+  // dispersão da bola: cresce com o erro de tempo e a potência, mas um swipe normal fica dentro do campo (como no Tennis Arena: falha quem arrisca)
+  const sig = (sh.type === 'lob' ? 0.25 + (1 - q) * 0.8 + press * 0.25 : 0.08 + (1 - q) * 1.0 + sh.power * 0.5 + press * 0.3) * em * (perfect ? 0.45 : 1);
+  const pull = Math.sign(sh.err || 0) * (fhSide(pl) ? 1 : -1) * s * (1 - q) * 0.55 * em;
   const tx = sh.tx + gauss() * sig + pull;
   const tz = sh.tz + r * (gauss() * sig * 0.85 + (1 - q) * 0.35 * Math.random() * em);
   const margin = sh.margin ?? (spec.margin - Math.random() * (1 - q) * 0.9 * em - press * Math.random() * 0.2);
@@ -658,8 +659,9 @@ function planIntercept(pl, speed, delay) {
   const fb = samples.find(q => q.b === 1);
   return fb ? { x:fb.x - s * 0.72, z:fb.z + s * 3 } : null;
 }
-// movimento assistido: assim que a bola vem, o jogador arranca sozinho e faz parte do caminho
-// (Normal ≈ metade); o resto é contigo — um toque perto do sítio certo chega, e o fim é afinado sozinho.
+// movimento assistido: assim que a bola vem, o jogador arranca sozinho e faz a maior parte do caminho (Normal 80%);
+// na última meia-segundo antes do contacto, se estiver perto do sítio certo, acaba o caminho sozinho (com ou sem toque).
+// Os toques servem para as bolas muito abertas e para escolher outra posição (subir à rede, recuar).
 function humanAuto(pl) {
   const h = H();
   if (M.phase === 'rally' && B.live && !B.netHit && B.hitter >= 0 && B.hitter !== pl.idx) {
@@ -668,11 +670,14 @@ function humanAuto(pl) {
     if (simTime - ap.at > 0.25) { ap.at = simTime; ap.p = planIntercept(pl, RUN_SPEED, 0.05); }
     const p = ap.p; if (!p) return;
     const manual = pl.manualId === B.hitId;
+    const rem = pl.incoming && pl.incoming.id === B.hitId && pl.incoming.absT !== Infinity ? pl.incoming.absT - simTime : 9;
+    const d = Math.hypot(p.x - pl.pos.x, p.z - pl.pos.z);
+    if (rem < 0.55 && d < h.fine) { pl.target = { x:p.x, z:p.z }; pl.walk = false; return; }   // reta final: afina sozinho
     if (!manual) {
       if (simTime - ap.t0 < 0.1) return;                                         // tempo de reação
       const k = h.auto ? 1 : h.drift;
       pl.target = { x:ap.start.x + (p.x - ap.start.x) * k, z:ap.start.z + (p.z - ap.start.z) * k }; pl.walk = false;
-    } else if (!pl.target && Math.hypot(p.x - pl.pos.x, p.z - pl.pos.z) < h.fine) { pl.target = { x:p.x, z:p.z }; pl.walk = false; }
+    }
   }
 }
 // o toque não precisa de ser exato: perto do sítio ideal, o destino é puxado para lá
@@ -878,12 +883,12 @@ function aimFromSwipe(dx, dy) {
   if (dy > 22 && dy > Math.abs(dx) * 0.55) {
     const d = clamp((dy - 22) / (innerHeight * 0.2), 0, 1);
     if (d < 0.4) { type = 'drop'; depth = 1.8 + d * 3; power = 0.2 + d; }
-    else { const k = (d - 0.4) / 0.6; type = 'lob'; depth = 8.8 + k * 2.3; power = 0.2 + k * 0.5; }
+    else { const k = (d - 0.4) / 0.6; type = 'lob'; depth = 8.6 + k * 1.8; power = 0.2 + k * 0.5; }
   } else {
     const d = clamp((Math.hypot(dx, dy) - SWIPE_MIN) / (innerHeight * 0.24), 0, 1);
-    type = 'topspin'; depth = 6.2 + d * 5.0; power = 0.15 + d * 0.85;
+    type = 'topspin'; depth = 6.0 + d * 4.6; power = 0.15 + d * 0.85;
   }
-  return { type, power, tx:s * ax * (HW - 0.3), tz:r * depth };
+  return { type, power, tx:s * ax * (HW - 0.95), tz:r * depth };   // o ângulo máximo aponta ~1 m dentro da linha lateral
 }
 // serviço: ângulo = lado da caixa (T ou aberto), comprimento = profundidade e velocidade
 function serveAimFromSwipe(dx, dy) {
