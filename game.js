@@ -1172,58 +1172,191 @@ $('bEndMain').addEventListener('click', () => {
 $('bEndMenu').addEventListener('click', goMenu);
 
 // ---------------------------------------------------------------- online (PeerJS, ligação direta entre telemóveis)
-const NET = { peer:null, conn:null, host:false, rtt:0.1, code:'', pingT:null, lastPos:0, url:'' };
+// O anfitrião regista a sala no servidor PeerJS com o código do link; o convidado liga-se a esse código.
+// No telemóvel, enquanto o anfitrião envia o link (WhatsApp, etc.) a página dele fica em segundo plano e o sistema
+// corta-lhe a ligação ao servidor. Por isso a sala volta a registar-se com o mesmo código quando ele regressa,
+// e o convidado vai tentando até o anfitrião estar outra vez com o jogo aberto.
+const NET = { peer:null, conn:null, host:false, role:null, rtt:0.1, code:'', pingT:null, lastPos:0, url:'', guestName:'',
+  opened:false, retryT:null, tickT:null, backoff:1000, joinAt:0, dialAt:0, served:false, iceFails:0, onRetry:null, hiddenAt:0,
+  giveUp:180000 };                                          // o convidado desiste ao fim de 3 min sem conseguir ligar
 const PREFIX = 'duelotenis-v1-';
+const PEER_OPTS = { config:{ iceServers:[
+  { urls:['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] },
+  // TURN da PeerJS: reencaminha os dados quando as redes (dados móveis, Wi-Fi de empresa) não deixam ligar diretamente
+  { urls:['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478', 'turn:eu-0.turn.peerjs.com:3478?transport=tcp'],
+    username:'peerjs', credential:'peerjsp' },
+] } };
+const SIGNAL_ERRS = new Set(['network', 'server-error', 'socket-error', 'socket-closed', 'disconnected']);
+const paired = () => M.mode === 'online';                 // já há duelo: o servidor de sinalização deixou de ser preciso
+const hostStatus = t => { $('hostStatus').textContent = t; };
+const joinStatus = t => { $('joinStatus').textContent = t; };
+const later = (fn, ms) => { clearTimeout(NET.retryT); NET.retryT = setTimeout(fn, ms); };
+
 function netSend(m) { try { if (NET.conn && NET.conn.open) NET.conn.send(m); } catch (e) {} }
+function dropConn() { const c = NET.conn; NET.conn = null; try { c && c.close(); } catch (e) {} }
+function killPeer() { dropConn(); const p = NET.peer; NET.peer = null; try { p && p.destroy(); } catch (e) {} }
 function netClose() {
-  clearInterval(NET.pingT);
+  clearInterval(NET.pingT); clearInterval(NET.tickT); clearTimeout(NET.retryT);
   netSend({ t:'bye' });
-  const c = NET.conn, p = NET.peer;
-  NET.peer = NET.conn = null; NET.url = '';
-  try { c && c.close(); } catch (e) {}
-  try { p && p.destroy(); } catch (e) {}
+  killPeer();
+  NET.url = ''; NET.role = null; $('bJoin').disabled = false;
 }
-function netError(title, text) { M.mode = 'menu'; netClose(); $('msgTitle').textContent = title; $('msgText').textContent = text; show('msgScr'); }
+function netError(title, text, retry) {
+  M.mode = 'menu'; netClose();
+  $('msgTitle').textContent = title; $('msgText').textContent = text;
+  NET.onRetry = retry || null; $('bJoin').disabled = false;
+  $('bRetry').classList.toggle('hidden', !retry); $('bMsgMenu').classList.toggle('primary', !retry);
+  show('msgScr');
+}
 function wire(conn) {
+  if (!conn) return;
   NET.conn = conn;
-  conn.on('data', onNet);
-  conn.on('close', () => { if (NET.conn === conn && (inMatch() || !$('endScr').classList.contains('hidden'))) netError('Ligação terminada', 'O teu amigo saiu do jogo.'); });
+  conn.on('data', m => { if (NET.conn === conn) onNet(m); });       // ignora tentativas antigas que ainda estejam a meio
   conn.on('open', () => {
+    if (NET.conn !== conn) return;
     clearInterval(NET.pingT);
     NET.pingT = setInterval(() => netSend({ t:'ping', c:performance.now() }), 2000);
-    if (!NET.host) netSend({ t:'hello', name:myName() });
+    if (!NET.host) { joinStatus('Ligado! A começar o duelo…'); netSend({ t:'hello', name:myName() }); }
   });
+  conn.on('close', () => {
+    if (NET.conn !== conn) return;
+    if (paired()) return netError('Ligação terminada', 'O teu amigo saiu do jogo.');
+    NET.conn = null;                                          // ainda não havia jogo: a sala continua aberta / volta a tentar
+    if (NET.role === 'host') hostStatus('À espera do teu amigo…');
+    if (NET.role === 'guest') { if (conn.__found) iceFailed(); later(dial, 1500); }
+  });
+  conn.on('error', () => {});                                 // a seguir vem sempre o 'close'
 }
+// a ligação ao servidor caiu (página em segundo plano, rede a mudar…): volta a ligar com o mesmo código
+function recover(peer) {
+  if (NET.peer !== peer || paired()) return;
+  const ms = NET.backoff; NET.backoff = Math.min(NET.backoff * 1.6, 8000);
+  if (ms > 1000) {                                          // a 1.ª falha recupera sem alarido
+    const t = navigator.onLine ? 'Sem ligação ao servidor. A tentar outra vez…' : 'Sem internet. À espera de rede…';
+    if (NET.role === 'host') hostStatus(t); else joinStatus(t);
+  }
+  later(() => {
+    if (NET.peer !== peer || paired()) return;
+    if (peer.destroyed) NET.role === 'host' ? openRoom() : guestPeer();
+    else if (peer.disconnected) try { peer.reconnect(); } catch (e) {}
+  }, ms);
+}
+function netWake(away = 0) {                                   // a página voltou a ficar visível ou a rede voltou
+  const peer = NET.peer;
+  if (!peer || !NET.role || paired()) return;
+  NET.backoff = 1000; NET.joinAt += away;                      // o tempo em segundo plano não conta para desistir
+  clearTimeout(NET.retryT);
+  if (peer.destroyed) return NET.role === 'host' ? openRoom() : guestPeer();
+  // depois de uns segundos fora, a ligação ao servidor pode parecer aberta mas estar morta: abre uma nova
+  if (!peer.disconnected && away > 3000) peer.disconnect();
+  if (peer.disconnected) { try { peer.reconnect(); } catch (e) {} return; }
+  if (NET.role === 'guest' && !NET.conn) dial();
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { NET.hiddenAt = performance.now(); return; }
+  const away = NET.hiddenAt ? performance.now() - NET.hiddenAt : 0; NET.hiddenAt = 0;
+  netWake(away);
+});
+addEventListener('online', () => netWake());
+addEventListener('pageshow', e => { if (e.persisted) netWake(5000); });
+
 function hostGame() {
   if (typeof Peer === 'undefined') return netError('Sem ligação', 'Não foi possível carregar o modo online. Verifica a internet.');
-  netClose(); NET.host = true;
+  netClose(); NET.host = true; NET.role = 'host'; NET.opened = false; NET.backoff = 1000;
   NET.code = Math.random().toString(36).slice(2, 8);
-  $('linkBox').textContent = 'A criar sala…'; $('hostStatus').textContent = 'À espera do teu amigo…';
+  $('linkBox').textContent = 'A criar sala…'; hostStatus('À espera do teu amigo…');
   show('hostScr');
-  const peer = NET.peer = new Peer(PREFIX + NET.code);
+  openRoom();
+}
+function openRoom() {
+  killPeer();
+  const peer = NET.peer = new Peer(PREFIX + NET.code, PEER_OPTS);
   peer.on('open', () => {
-    const url = location.origin + location.pathname + '#d=' + NET.code;
-    NET.url = url; $('linkBox').textContent = url;
-    $('bWa').href = 'https://wa.me/?text=' + encodeURIComponent('Desafio-te para um duelo de ténis: ' + url);
+    if (NET.peer !== peer) return;
+    NET.backoff = 1000;
+    if (!NET.opened) {
+      NET.opened = true;
+      const url = location.origin + location.pathname + '#d=' + NET.code;
+      NET.url = url; $('linkBox').textContent = url;
+      $('bWa').href = 'https://wa.me/?text=' + encodeURIComponent('Desafio-te para um duelo de ténis: ' + url);
+    }
+    hostStatus(NET.conn ? 'Amigo a entrar…' : 'À espera do teu amigo…');
   });
-  peer.on('connection', c => { if (NET.conn) { c.close(); return; } $('hostStatus').textContent = 'Amigo a entrar…'; wire(c); });
+  peer.on('connection', c => {
+    if (NET.peer !== peer || paired()) { c.close(); return; }
+    dropConn();                                 // uma tentativa nova do convidado substitui a que ficou pendurada
+    hostStatus('Amigo a entrar…'); wire(c);
+    setTimeout(() => { if (NET.conn === c && !c.open && !paired()) { dropConn(); hostStatus('À espera do teu amigo…'); } }, 30000);
+  });
+  peer.on('disconnected', () => recover(peer));
   peer.on('error', e => {
-    if (e.type === 'unavailable-id') return hostGame();
-    netError('Erro de ligação', 'Não foi possível criar a sala (' + e.type + '). Tenta outra vez.');
+    if (NET.peer !== peer || paired()) return;  // a meio do duelo a ligação ao servidor já não interessa
+    if (e.type === 'unavailable-id') {
+      if (!NET.opened) return hostGame();       // código já usado por outra sala: escolhe outro (o link ainda não saiu)
+      return later(() => { if (NET.peer === peer && !paired()) openRoom(); }, 4000);   // o servidor ainda guarda a sala antiga
+    }
+    if (SIGNAL_ERRS.has(e.type)) return recover(peer);
+    if (e.type === 'peer-unavailable' || e.type === 'webrtc') return;
+    netError('Erro de ligação', 'Não foi possível criar a sala (' + e.type + '). Tenta outra vez.', hostGame);
   });
 }
+
 function joinGame(code) {
   if (typeof Peer === 'undefined') return netError('Sem ligação', 'Não foi possível carregar o modo online. Verifica a internet.');
-  netClose(); NET.host = false;
-  $('joinStatus').textContent = 'A ligar ao teu amigo…'; $('bJoin').disabled = true;
-  const peer = NET.peer = new Peer();
-  peer.on('open', () => wire(peer.connect(PREFIX + code, { reliable:true })));
+  netClose(); NET.host = false; NET.role = 'guest'; NET.code = code; NET.backoff = 1000;
+  Object.assign(NET, { joinAt:performance.now(), dialAt:performance.now(), served:false, iceFails:0 });
+  joinStatus('A ligar ao teu amigo…'); $('bJoin').disabled = true;
+  guestPeer();
+  NET.tickT = setInterval(guestTick, 1000);
+}
+function guestPeer() {
+  killPeer();
+  const code = NET.code, peer = NET.peer = new Peer(PEER_OPTS);
+  peer.on('open', () => { if (NET.peer !== peer) return; NET.backoff = 1000; NET.served = true; if (!NET.conn) dial(); });
+  peer.on('disconnected', () => recover(peer));
   peer.on('error', e => {
-    $('bJoin').disabled = false;
-    if (e.type === 'peer-unavailable') netError('Convite expirado', 'O teu amigo já não está na sala. Pede-lhe um link novo.');
-    else netError('Erro de ligação', 'Não foi possível ligar (' + e.type + ').');
+    if (NET.peer !== peer || paired()) return;
+    if (e.type === 'peer-unavailable') {        // a sala não está registada agora: o anfitrião saiu da página
+      joinStatus('O teu amigo não está com o jogo aberto. Pede-lhe para voltar à página do duelo…');
+      dropConn(); return later(dial, 2500);
+    }
+    if (SIGNAL_ERRS.has(e.type)) return recover(peer);
+    if (e.type === 'webrtc') return;
+    netError('Erro de ligação', 'Não foi possível ligar (' + e.type + ').', rejoin(code));
   });
-  setTimeout(() => { if (M.mode === 'menu' && !$('joinScr').classList.contains('hidden') && NET.peer === peer) $('joinStatus').textContent = 'Está a demorar… confirma que o teu amigo tem o jogo aberto.'; }, 9000);
+}
+const rejoin = code => () => { show('joinScr'); joinGame(code); };
+function dial() {
+  const peer = NET.peer;
+  if (!peer || NET.role !== 'guest' || paired()) return;
+  if (peer.destroyed || peer.disconnected) return recover(peer);
+  if (!peer.open) return;                       // ainda a registar-se: o 'open' chama dial()
+  clearTimeout(NET.retryT); dropConn();
+  NET.dialAt = performance.now();
+  wire(peer.connect(PREFIX + NET.code, { reliable:true }));
+}
+function iceFailed() {
+  NET.iceFails++;
+  joinStatus(NET.iceFails < 2 ? 'Amigo encontrado, mas a ligação falhou. A tentar outra vez…'
+    : 'As vossas redes estão a bloquear a ligação. Se puderem, liguem-se os dois ao mesmo Wi-Fi. A tentar…');
+}
+function guestTick() {
+  if (NET.role !== 'guest' || paired()) return;
+  const now = performance.now(), c = NET.conn;
+  if (now - NET.joinAt > NET.giveUp) {
+    const again = rejoin(NET.code);
+    if (NET.iceFails) return netError('Não foi possível ligar', 'O teu amigo foi encontrado, mas as vossas redes não deixam ligar os dois telemóveis. Experimentem ligar-se os dois ao mesmo Wi-Fi e tentem outra vez.', again);
+    if (!NET.served) return netError('Sem ligação', 'Não foi possível chegar ao servidor do jogo. Verifica a internet e tenta outra vez.', again);
+    return netError('O teu amigo não respondeu', 'Ele tem de ter a página do duelo aberta, com o link à espera. Pede-lhe para voltar ao jogo ou para criar um link novo.', again);
+  }
+  if (document.hidden || (c && c.open)) return;
+  if (!c) { if (NET.peer && NET.peer.open && now - NET.dialAt > 10000) dial(); return; }   // rede de segurança
+  const pc = c.peerConnection, age = now - NET.dialAt;
+  if (pc && pc.remoteDescription && !c.__found) {   // o anfitrião respondeu: falta só a ligação direta entre os dois
+    c.__found = true;
+    if (!NET.iceFails) joinStatus('Amigo encontrado. A ligar…');
+  }
+  if ((!c.__found && age > 8000) || age > 25000) { if (c.__found) iceFailed(); dial(); }
 }
 function sendStart() {
   const cfg = { names:[myName(), NET.guestName || 'Amigo'], surface:store.get('surface', 'hard'), first:Math.random() < 0.5 ? 0 : 1, looks:[0, 1] };
@@ -1233,8 +1366,8 @@ function sendStart() {
 function maybeRematch() { if (NET.host && M.wantRematch && M.remoteRematch) sendStart(); }
 function onNet(m) {
   switch (m.t) {
-    case 'hello': if (NET.host) { NET.guestName = String(m.name || 'Amigo').slice(0, 12); sendStart(); } break;
-    case 'start': if (!NET.host) startMatch({ mode:'online', me:1, names:m.names, surface:m.surface, first:m.first, looks:m.looks }); break;
+    case 'hello': if (NET.host && !paired()) { NET.guestName = String(m.name || 'Amigo').slice(0, 12); sendStart(); } break;
+    case 'start': if (!NET.host) { clearInterval(NET.tickT); clearTimeout(NET.retryT); $('bJoin').disabled = false; startMatch({ mode:'online', me:1, names:m.names, surface:m.surface, first:m.first, looks:m.looks }); } break;
     case 'pos': { const p = P[other(M.me)]; p.netPos = { x:m.x, z:m.z }; break; }
     case 'toss': if (M.phase === 'pointover') runTimers(true); if (M.phase === 'preserve') M.toss = { idx:other(M.me), t0:simTime, aim:null, releaseAt:null }; break;
     case 'hit': {
@@ -1252,11 +1385,13 @@ function onNet(m) {
     case 'ping': netSend({ t:'pong', c:m.c }); break;
     case 'pong': NET.rtt = (performance.now() - m.c) / 1000; break;
     case 'rematch': M.remoteRematch = true; maybeRematch(); break;
-    case 'bye': netError('Ligação terminada', 'O teu amigo saiu do jogo.'); break;
+    case 'bye': if (paired()) netError('Ligação terminada', 'O teu amigo saiu do jogo.');
+      else if (!NET.host) netError('Desafio cancelado', 'O teu amigo cancelou o desafio. Pede-lhe um link novo.'); break;
   }
 }
 const OFFLINE_MSG = 'O duelo com amigos precisa de internet. Sem ligação podes jogar contra o CPU ou o torneio.';
 $('bFriend').addEventListener('click', () => { audio(); saveName(myName()); if (!navigator.onLine) return netError('Sem internet', OFFLINE_MSG); hostGame(); });
+$('bRetry').addEventListener('click', () => { const f = NET.onRetry; NET.onRetry = null; if (f) f(); });
 $('bCopy').addEventListener('click', async () => {
   const label = t => { $('bCopy').innerHTML = icon('copy') + t; };
   try { await navigator.clipboard.writeText(NET.url || ''); label('Copiado'); } catch (e) { label('Seleciona e copia'); }
@@ -1380,7 +1515,13 @@ $('bInstall').addEventListener('click', async () => {
 refreshInstall();
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || /[?&]sw=1/.test(location.search))) {
   navigator.serviceWorker.register('sw.js').then(reg => {
-    const offer = () => { if (reg.waiting && navigator.serviceWorker.controller) { $('bUpdate').classList.remove('hidden'); $('bUpdate').onclick = () => { updateAsked = true; reg.waiting.postMessage('skipWaiting'); }; } };
+    const offer = () => {
+      if (!reg.waiting || !navigator.serviceWorker.controller) return;
+      const apply = () => { updateAsked = true; reg.waiting.postMessage('skipWaiting'); };
+      // quem abre um convite fica logo com a versão nova (os dois têm de ter o mesmo código online); ainda não há jogo a perder
+      if (!$('joinScr').classList.contains('off') && !NET.role) return apply();
+      $('bUpdate').classList.remove('hidden'); $('bUpdate').onclick = apply;
+    };
     offer();
     reg.addEventListener('updatefound', () => { const w = reg.installing; if (w) w.addEventListener('statechange', () => { if (w.state === 'installed') offer(); }); });
   }).catch(() => {});
