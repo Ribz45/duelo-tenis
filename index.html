@@ -245,7 +245,7 @@
 <div id="hostScr" class="screen off">
   <div class="card">
     <h2>Desafiar um amigo</h2>
-    <p class="muted">Envia este link. O jogo começa quando o teu amigo o abrir.</p>
+    <p class="muted">Envia este link e volta a esta página: o jogo começa sozinho quando o teu amigo o abrir.</p>
     <div class="linkbox" id="linkBox">A criar sala…</div>
     <div class="row2"><button id="bShare" class="primary"><svg class="i"><use href="#i-share"/></svg>Partilhar</button><a id="bWa" class="btn" target="_blank" rel="noopener"><svg class="i"><use href="#i-chat"/></svg>WhatsApp</a></div>
     <button id="bCopy"><svg class="i"><use href="#i-copy"/></svg>Copiar link</button>
@@ -298,12 +298,13 @@
   <div class="card">
     <h2 id="msgTitle">Ups</h2>
     <p class="muted" id="msgText"></p>
-    <button class="primary" data-back>Menu</button>
+    <button id="bRetry" class="primary hidden"><svg class="i"><use href="#i-refresh"/></svg>Tentar outra vez</button>
+    <button id="bMsgMenu" class="primary" data-back>Menu</button>
   </div>
 </div>
 
 <script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
 <script src="vendor/peerjs.min.js"></script>
-<script type="module" src="game.js?v=10"></script>
+<script type="module" src="game.js?v=11"></script>
 </body>
 </html>
