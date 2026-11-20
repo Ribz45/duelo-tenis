@@ -9,7 +9,11 @@ Publicado em <https://ribz45.github.io/duelo-tenis/> (GitHub Pages, ramo `main`)
 |---|---|
 | `index.html` | Página única: ecrãs, estilos e HUD |
 | `game.js` | Jogo: física da bola, regras em campo, CPU, controlos (swipe), câmara, HUD, estatísticas do jogo |
-| `online.js` | Modo online: perfil, amigos, lobby com presença, convites, ligação ao adversário (relé + direta) |
+| `online.js` | Modo online: perfil, amigos, lobby com presença, convites, ligação ao adversário (relé + direta), liga de amigos |
+| `chars.js` | Os 7 tenistas e os 5 atributos (velocidade, alcance, potência, serviço, controlo) → física do jogo |
+| `career-engine.js` | Carreira (lógica pura, testada): 200 jogadores, ranking, calendário, torneios, experiência, treinadores, material |
+| `careerui.js` | Ecrãs da carreira e ligação aos jogos |
+| `achievements.js` | Conquistas (guardadas no telemóvel e no perfil) |
 | `config.js` | Endereço do servidor online (`PROD` depois do deploy) |
 | `rules.js` | Regras puras (pontuação, serviço, dentro/fora) — testadas em `tests/rules.test.mjs` |
 | `athlete-gltf.js`, `player3d.js` | Jogadores 3D (Rocketbox + pancadas por captura de movimento) |
@@ -29,11 +33,20 @@ Publicado em <https://ribz45.github.io/duelo-tenis/> (GitHub Pages, ramo `main`)
 3. Para testar dois jogadores no mesmo computador abre `http://localhost:8765` e `http://127.0.0.1:8765`
    (cada endereço guarda o seu próprio perfil).
 
+## Modos
+
+- **Jogo rápido** e **Torneio** contra o CPU, com o tenista escolhido (cada um com o seu estilo; o CPU também).
+- **Carreira**: começa em #200 e sobe até aos Grand Slams; treinos com desafios; repetição dos grandes pontos.
+- **Jogar com amigos**: lobby, convites, liga Elo, reações rápidas entre pontos.
+- **Desafio do dia**: igual para todos, tabela entre amigos.
+- **Conquistas**. Jogos de dia ou à noite (projetores).
+
 ## Testes
 
-- `npm test` — regras do ténis.
+- `npm test` — regras do ténis, tenistas e motor da carreira (`tests/*.test.mjs`).
 - `cd server && npm test` — servidor (contas, amigos, convites, relé, resultados).
-- Equilíbrio (no browser, com o jogo aberto): `const b = await import('./tests/balance.js'); b.serves(40); b.play(1, 80)`.
+- Equilíbrio (no browser, com o jogo aberto): `const b = await import('./tests/balance.js'); b.serves(40); b.play(1, 80); b.setChars('martelo', 'tudo')`.
+- Online de ponta a ponta (dois separadores): `tests/online-bot.js`.
 
 ## Publicar
 

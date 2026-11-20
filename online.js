@@ -2,7 +2,7 @@
 // Servidor próprio (Cloudflare Worker, ver server/ e docs/online-api.md).
 // Ligação durante o jogo: começa SEMPRE pelo relé do servidor (WebSocket, funciona em qualquer rede) e passa para
 // ligação direta (WebRTC) quando as duas redes o permitem — nunca fica sem ligação por causa do tipo de rede.
-import { API_BASE } from './config.js?v=12';
+import { API_BASE } from './config.js?v=13';
 
 export function createOnline(G) {
   const $ = id => document.getElementById(id);
@@ -233,6 +233,7 @@ export function createOnline(G) {
   }
   function peerHere(L) {
     L.peer = true; clearTimeout(L.leaveT);
+    sendWs(L, { t:'char', id:G.myChar ? G.myChar() : 'tudo' });               // o outro telemóvel fica a saber com que tenista jogo
     if (L.started) return;
     $('connSub').textContent = 'Os dois no campo · a afinar a ligação…';
     if (L.m.role === 'host') {
@@ -334,6 +335,22 @@ export function createOnline(G) {
   }
   function reportMatch(r) { if (!S.token) return; queueReport(r); flushReports(); }
 
+  // ---------------------------------------------------------------- gravações no perfil, desafio do dia, liga de amigos
+  async function saveGet(key) { try { return await api('/api/save/' + key); } catch (e) { if (e.status === 404) return null; throw e; } }
+  const savePut = (key, data, summary, base, force) => api('/api/save/' + key, { method:'PUT', body:{ base:base || 0, data, ...(summary ? { summary } : {}), ...(force ? { force:true } : {}) } });
+  const dailyPost = (day, score, detail) => api('/api/daily', { method:'POST', body:{ day, score, detail } });
+  const dailyGet = day => api('/api/daily?day=' + encodeURIComponent(day));
+  async function renderLadder() {
+    const el = $('lobbyLadder'); if (!el || !S.token) return;
+    try {
+      const r = await api('/api/ladder', { timeout:6000 });
+      const rows = (r.players || []).slice(0, 12);
+      el.classList.toggle('hidden', rows.length < 2);
+      $('ladderList').innerHTML = rows.map((p, i) => `<li class="${p.me ? 'me' : ''}"><span class="lr">${i + 1}</span>${avHtml(p.user)}<span class="ln">${esc(p.user.name)}</span>
+        <span class="lw">${n(p.w)}V–${n(p.l)}D</span><b>${n(p.elo)}</b></li>`).join('');
+    } catch (e) { /* sem liga: fica escondida */ }
+  }
+
   // ---------------------------------------------------------------- amigos
   async function addFriend(tag, key) {
     tag = String(tag || '').trim().toUpperCase().replace(/^#/, '');
@@ -418,7 +435,7 @@ export function createOnline(G) {
       const waiting = S.out && S.out.to === f.id;
       const busy = f.online && f.status === 'match';
       const st = f.online ? (busy ? 'A jogar' : 'No lobby') : ago(f.lastSeen);
-      const h2h = f.h2h && (f.h2h.w || f.h2h.l) ? ` · ${n(f.h2h.w)}–${n(f.h2h.l)}` : '';
+      const h2h = (f.h2h && (f.h2h.w || f.h2h.l) ? ` · ${n(f.h2h.w)}–${n(f.h2h.l)}` : '') + (f.career && f.career.rank ? ` · carreira #${n(f.career.rank)}` : '');
       const btn = waiting ? `<button class="sm wait" data-cancel="1">À espera… ✕</button>`
         : f.online && !busy ? `<button class="sm primary" data-invite="${esc(f.id)}">Desafiar</button>`
         : `<button class="sm" disabled>${busy ? 'A jogar' : 'Offline'}</button>`;
@@ -468,7 +485,7 @@ export function createOnline(G) {
   function openLobby() {
     if (!enabled()) { G.netError('Modo online em preparação', 'O servidor do modo online ainda não está ligado. Podes jogar contra o CPU ou o torneio.'); return; }
     if (!S.token) { openProfileSetup(); return; }
-    renderLobby(); G.show('lobbyScr');
+    renderLobby(); G.show('lobbyScr'); renderLadder();
     connectHub(); loadMe().catch(e => { if (e.code !== 'network' && e.code !== 'timeout') return; G.toast('Sem ligação', 'bad', 'A mostrar a última lista guardada', 1600); });
   }
 
@@ -571,6 +588,7 @@ export function createOnline(G) {
     init, openLobby, openProfileSetup,
     send, close:closeRoom, guestStarted, via, reportMatch, enabled,
     me:() => S.me, link:() => S.link, hasAccount:() => !!S.token,
+    saveGet, savePut, dailyPost, dailyGet, friends:() => S.friends,
     setStatus:s => hubSend({ t:'status', s }),
   };
 }

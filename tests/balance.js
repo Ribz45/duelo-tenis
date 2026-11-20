@@ -3,7 +3,9 @@
 // Simulam um jogador humano razoável (erro de tempo ~60 ms, ângulos ao acaso) contra o CPU.
 const D = () => window.__dt;
 const gauss = () => { let u = 0, v = 0; while (!u) u = Math.random(); while (!v) v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
-const start = level => D().startMatch({ mode:'cpu', me:0, names:['Eu', 'CPU'], surface:'hard', level, first:0, looks:[0, 1] });
+let CHARS = ['tudo', 'tudo'];
+export const setChars = (a, b) => { CHARS = [a, b]; };
+const start = level => D().startMatch({ mode:'cpu', me:0, names:['Eu', 'CPU'], surface:'hard', level, first:0, chars:CHARS.slice() });
 
 // um serviço meu (0-0, lado direito): devolve 'fault' | 'unret' (ás ou resposta falhada) | 'cpuErr' | 'ret'
 export function serveOnce(level, ax, ad, err) {
@@ -68,4 +70,15 @@ export function play(level, points = 80, tsig = 0.06, stopAtEnd = false) {
   const avg = st.rallies.reduce((a, b) => a + b, 0) / st.rallies.length;
   const lobAvg = st.lobs.length ? +(st.lobs.reduce((a, b) => a + b, 0) / st.lobs.length).toFixed(1) : null;
   return { ganhos:Math.round(100 * st.won / st.pts) + '%', pancadasMedia:+avg.toFixed(1), pancadasMax:Math.max(...st.rallies), balaoMedio:lobAvg, balaoMax:Math.max(0, ...st.lobs), porque:st.why };
+}
+
+// cada tenista (eu, jogador simulado) contra o mesmo CPU: mostra quanto os atributos mudam o resultado
+export function matrix(points = 100, level = 1, cpu = 'tudo') {
+  const out = {};
+  for (const c of ['tudo', 'canhao', 'muralha', 'relampago', 'artista', 'martelo', 'rede']) {
+    setChars(c, cpu); const r = play(level, points);
+    out[c] = r.preso ? 'PRESO' : r.ganhos + ' · ' + r.pancadasMedia + ' pancadas · ases ' + (r.porque['ganho: Ás'] || 0);
+  }
+  setChars('tudo', 'tudo');
+  return out;
 }

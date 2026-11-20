@@ -1,6 +1,6 @@
 # Duelo Ténis — Characters, Career mode and extras (design plan)
 
-Status: proposal, nothing built yet. Written 2026-11-20 for v12 (live).
+Status: built on branch `carreira-personagens` (2026-11-20). Notes in *Built* boxes say where the build differs from the proposal.
 In-game text stays in Portuguese; names below in *italics* are the labels players will see.
 
 Hard constraints for everything here:
@@ -43,7 +43,7 @@ big enough that 3 points (e.g. 6 → 9) is clearly felt.
 |---|---|---|---|---|
 | Speed (*Velocidade*) | run speed (`RUN_SPEED` 6.2 m/s), auto-run reaction | ±3.5 % speed | 5.6 m/s | 6.9 m/s |
 | Reach (*Alcance*) | hitting radius (`reachOf`, 1.8 m) | ±0.07 m | 1.6 m | 2.0 m |
-| Power (*Potência*) | rally shot speed (`shotSpec` speedH) and the pressure it puts on the returner | ±3 % | −9 % | +9 % |
+| Power (*Potência*) | rally shot speed (`shotSpec` speedH) and the pressure it puts on the returner | ±2.2 % | −6.6 % | +6.6 % |
 | Serve (*Serviço*) | first-serve speed and the serve pressure that makes aces (`svPress`) | ±3.5 % speed, ±4 % accuracy | fewer aces | many more aces |
 | Control (*Controlo*) | ball scatter (`sig`), size of the "perfect" timing window (`greenWin`) | ±6 % scatter, ±4 % window | wilder, smaller window | tighter, bigger window |
 
@@ -55,6 +55,9 @@ character trait (see the net player below) once the CPU knows how to volley.
 (see §4), but online friendlies always use characters, so they stay fair.
 
 ---
+
+> *Built:* `chars.js` holds the stats and the multipliers; power was lowered from ±3 % to ±2.2 % per point because extra pace
+> also makes the CPU miss more (at 3 %, the power character won 49 % of points where the others won 38–42 %).
 
 ## 3. Selectable characters (*Tenistas*)
 
@@ -81,6 +84,12 @@ draws the right player; every phone already computes its own shots, so stats app
 style: Muralha lobs and defends deep, Martelo aims closer to the lines, Artista uses more drop shots,
 Canhão goes for the corners on serve. (A real net-rusher needs CPU volleys, which the CPU doesn't do today —
 later phase.)
+
+> *Built:* seven characters — the six above plus **Sofia «Rede»** (net rusher: spd 6, rch 7, pow 5, srv 7, ctl 5, trait: safer volleys
+> with +0.18 m reach). The CPU now volleys when it is near the net, and so does the human auto-run (it used to pull you back to the bounce).
+> Characters are told apart by model, skin, outfit and hair; body height/build was dropped because scaling the skeleton breaks the
+> racket-to-ball arm calibration. Measured (simulated player, 120–200 points each vs the same medium CPU): Tomás 38 %, Muralha 38 %,
+> Artista 40 %, Rede 41 %, Canhão 42 % (most aces, shortest rallies), Relâmpago 42 %, Martelo 43 % — all within 38–43 %.
 
 **Balance check before release:** extend `tests/balance.js` to play every character against every other
 with the simulated player. Target: no match-up below 40 % or above 60 % over 200 points.
