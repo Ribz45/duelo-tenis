@@ -1,6 +1,6 @@
 // Modo carreira: ecrãs e ligação ao jogo. A lógica (ranking, calendário, torneios, evolução) está em career-engine.js.
 // Um só ecrã (#careerScr) cujo conteúdo muda conforme a vista; guarda no telemóvel após cada jogo e copia para o perfil.
-import * as E from './career-engine.js?v=13';
+import * as E from './career-engine.js?v=14';
 
 const KEY = 'dt_career';
 const SURF = { hard:'Piso rápido', clay:'Terra batida', grass:'Relva' };
@@ -48,8 +48,16 @@ export function createCareer(G) {
       if (remote && remote.data) { try { st = E.deserialize(JSON.stringify(remote.data)); rev = remote.rev; localStorage.setItem(KEY + '_rev', String(rev)); save(false); G.toast('Carreira recuperada', 'good', 'Do teu perfil online', 1800); } catch (e) {} }
     }
     if (!st) return renderNew();
-    view = st.event ? 'event' : 'home'; render();
+    if (st.titles) G.ach.unlock('career_title');                  // conquistas de carreiras anteriores a esta versão
+    if (st.majors) G.ach.unlock('career_major');
+    train = loadTrain();
+    view = st.event ? 'event' : train && !st.weekDone ? 'train' : 'home'; render();
   }
+  // a semana de treino em curso fica guardada (sair ou fechar a app não apaga os desafios já feitos)
+  const trainKey = () => 's' + n(st.season) + 'w' + n(st.week);
+  function loadTrain() { try { const t = JSON.parse(localStorage.getItem(KEY + '_train') || 'null'); return t && t.key === trainKey() ? t : null; } catch (e) { return null; } }
+  function saveTrain() { try { if (train) localStorage.setItem(KEY + '_train', JSON.stringify(train)); else localStorage.removeItem(KEY + '_train'); } catch (e) {} }
+  const backView = () => (st.event ? 'event' : train && !st.weekDone ? 'train' : 'home');
 
   // ---------------------------------------------------------------- vistas
   const P = () => st.player;
@@ -149,7 +157,7 @@ export function createCareer(G) {
     return header() + `<h2>Evolução</h2>
       <div class="field-l">Atributos ${n(p.attr) ? `· ${n(p.attr)} ${n(p.attr) === 1 ? 'ponto' : 'pontos'} para gastar` : ''}</div>
       <div class="panel">${E.STATS.map(k => `<div class="cr-stat"><span>${E.STAT_LABELS[k]}</span><span class="bar"><i style="--v:${n(e[k]) / 10}"></i></span><b>${n(e[k])}</b>
-        <button class="sm${n(p.attr) && n(p.stats[k]) < 10 ? ' primary' : ''}" data-act="spend" data-k="${k}" ${n(p.attr) && n(p.stats[k]) < 10 ? '' : 'disabled'}>+</button></div>`).join('')}</div>
+        <button class="sm${n(p.attr) && n(e[k]) < 10 ? ' primary' : ''}" data-act="spend" data-k="${k}" ${n(p.attr) && n(e[k]) < 10 ? '' : 'disabled'}>+</button></div>`).join('')}</div>
       <div class="field-l">Treinador</div>
       <div class="cr-list">${Object.entries(C).map(([id, c]) => { const mine = p.coach === id, locked = c.unlockRank && E.summary(st).bestRank > c.unlockRank;
         return `<div class="panel cr-row${mine ? ' on' : ''}"><span class="mi"><b>${esc(c.label)}</b><small>+1 ${E.STAT_LABELS[c.stat] || ''} · ${esc(c.perk && c.perk.text || '')}</small>
@@ -159,15 +167,15 @@ export function createCareer(G) {
       <div class="field-l">Material</div>
       <div class="cr-list">${Object.entries(Gr).map(([slot, gd]) => { const lv = n(p.gear && p.gear[slot]), max = lv >= (gd.max || 2);
         return `<div class="panel cr-row"><span class="mi"><b>${esc(gd.label || slot)} · nível ${lv}</b><small>+1 ${E.STAT_LABELS[gd.stat] || ''} por nível${gd.prices && !max ? ` · próximo ${eur(gd.prices[lv])}` : ''}</small></span>
-        <button class="sm primary" data-act="gear" data-id="${esc(slot)}" ${max ? 'disabled' : ''}>${max ? 'Máximo' : 'Comprar'}</button></div>`; }).join('')}</div>
-      <button class="ghost" data-act="${st.event ? 'event' : 'home'}">Voltar</button>`;
+        <button class="sm primary" data-act="gear" data-id="${esc(slot)}" ${max || n(e[gd.stat]) >= 10 ? 'disabled' : ''}>${max ? 'Máximo' : n(e[gd.stat]) >= 10 ? 'Já no 10' : 'Comprar'}</button></div>`; }).join('')}</div>
+      <button class="ghost" data-act="back">Voltar</button>`;
   }
   function renderRank() {
     const top = E.ranking(st, { limit:10 }), around = E.ranking(st, { around:true, limit:7 });
     const row = r => `<li class="${r.me ? 'me' : ''}${r.rival ? ' rv' : ''}"><span class="lr">${n(r.rank)}</span><span class="ln">${esc(r.name)}${r.rival ? ' · rival' : ''}</span><span class="lw">${esc(r.country || '')}</span><b>${n(r.points)}</b></li>`;
     const seen = new Set(top.map(r => r.id));
     return header() + `<h2>Ranking mundial</h2><ol class="ladder cr-rank">${top.map(row).join('')}${around.some(r => !seen.has(r.id)) ? '<li class="gap">…</li>' + around.filter(r => !seen.has(r.id)).map(row).join('') : ''}</ol>
-      <button class="ghost" data-act="${st.event ? 'event' : 'home'}">Voltar</button>`;
+      <button class="ghost" data-act="back">Voltar</button>`;
   }
   function renderCase() {
     const p = P(), tr = st.trophies || p.trophies || [], s = E.summary(st), can = E.canRetire && E.canRetire(st);
@@ -177,7 +185,7 @@ export function createCareer(G) {
       ${tr.length ? `<ul class="achs">${tr.slice().reverse().map(t => `<li class="got"><span class="ai">${G.icon('trophy')}</span><span class="mi"><b>${esc(t.name || t.title || '')}</b>
         <small>${esc(((E.TIERS[t.tier] || {}).label) || '')}${t.season ? ' · época ' + n(t.season) : ''}</small></span></li>`).join('')}</ul>` : '<p class="empty">Ainda sem troféus. O primeiro está à espera!</p>'}
       ${can ? '<button data-act="retire">Retirar e entrar no Hall da Fama</button>' : ''}
-      <button class="ghost" data-act="${st.event ? 'event' : 'home'}">Voltar</button>`;
+      <button class="ghost" data-act="back">Voltar</button>`;
   }
 
   // criar o jogador
@@ -216,7 +224,7 @@ export function createCareer(G) {
   // fim de um jogo da carreira (chamado pelo jogo)
   function matchEnded({ won, score, sets, me, maxDeficit }) {
     if (!st || !st.event) return;
-    const matchStats = { aces:n(me && me.aces), longestRally:n(me && me.longestRallyWon), winners:n(me && me.winners), comeback:n(maxDeficit) >= 5 };
+    const matchStats = { aces:n(me && me.aces), longestRally:n(me && me.longestRallyWon), winners:n(me && me.winners), comeback:n(maxDeficit) >= 5, maxDeficit:n(maxDeficit) };
     lastRewards = { ...E.recordMatch(st, { won, score, sets, matchStats }), won, score };
     G.ach.career(lastRewards.milestones);
     save(true);
@@ -234,22 +242,22 @@ export function createCareer(G) {
     save(true); view = 'week'; render();
   }
   function startTraining() {
-    train = { list:E.trainingChallenges(st), results:[] };
-    view = 'train'; render();
+    train = loadTrain() || { key:trainKey(), list:E.trainingChallenges(st), results:[] };
+    saveTrain(); view = 'train'; render();
   }
   function playTraining(i) {
     const c = train.list[i], p = P();
     const coach = p.coach && E.COACHES[p.coach], perks = coach && coach.perk ? [coach.perk.id] : [];
     G.startChallenge({ id:c.id, kind:c.kind, goal:n(c.goal), zone:c.zone || (c.kind === 'serveTarget' ? 'T' : undefined), label:c.label, cpuTotal:Math.max(15, E.STATS.reduce((a, k) => a + n(eff()[k]), 0)),
       retryLabel:'Tentar outra vez', doneLabel:'Voltar ao treino',
-      onDone:res => { const prev = train.results[i]; if (!prev || res.score > prev.score) train.results[i] = { id:c.id, score:res.score, goal:res.goal, passed:res.passed }; },
+      onDone:res => { const prev = train.results[i]; if (!prev || res.score > prev.score) train.results[i] = { id:c.id, score:res.score, goal:res.goal, passed:res.passed }; saveTrain(); },
       onRetry:() => playTraining(i), onExit:() => { view = 'train'; render(); } },
       { char:charFor(p.style), stats:eff(), perks, looks:[n(p.look), (n(p.look) + 2) % G.lookColors.length] });
   }
   function endTraining() {
     const results = train.list.map((c, i) => train.results[i] || { id:c.id, score:0, goal:n(c.goal), passed:false });
     lastRewards = { ...E.recordTraining(st, { results }), won:results.some(r => r.passed), training:true };
-    train = null; save(true); view = 'reward'; render();
+    train = null; saveTrain(); save(true); view = 'reward'; render();
   }
 
   // ---------------------------------------------------------------- toques
@@ -267,6 +275,7 @@ export function createCareer(G) {
     if (!st) return;
     if (a === 'home') { view = 'home'; return render(); }
     if (a === 'event') { view = st.event ? 'event' : 'home'; return render(); }
+    if (a === 'back') { view = backView(); return render(); }
     if (a === 'grow') { view = 'grow'; return render(); }
     if (a === 'rank') { view = 'rank'; return render(); }
     if (a === 'case') { view = 'case'; return render(); }

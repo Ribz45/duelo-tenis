@@ -4,19 +4,19 @@ export const STATS = ['spd', 'rch', 'pow', 'srv', 'ctl'];
 export const STAT_LABELS = { spd:'Velocidade', rch:'Alcance', pow:'Potência', srv:'Serviço', ctl:'Controlo' };
 
 export const CHARACTERS = [
-  { id:'tudo', name:'Tomás', nick:'Tudo-o-Terreno', style:'Equilibrado', look:0,
+  { id:'tudo', name:'Tom', style:'Equilibrado', look:0,
     stats:{ spd:6, rch:6, pow:6, srv:6, ctl:6 }, blurb:'Bom em tudo, sem pontos fracos. O melhor para aprender.' },
-  { id:'canhao', name:'Inês', nick:'Canhão', style:'Grande serviço', look:1,
+  { id:'canhao', name:'Claire', style:'Grande serviço', look:1,
     stats:{ spd:4, rch:5, pow:7, srv:9, ctl:5 }, blurb:'Pontos de borla no serviço. Nas trocas longas sofre.' },
-  { id:'muralha', name:'Duarte', nick:'Muralha', style:'Defensor', look:2,
+  { id:'muralha', name:'Alex', style:'Defensor', look:2,
     stats:{ spd:7, rch:9, pow:3, srv:4, ctl:7 }, blurb:'Devolve tudo. Ganha por cansar o adversário, não por força.' },
-  { id:'relampago', name:'Mia', nick:'Relâmpago', style:'Velocidade', look:5,
+  { id:'relampago', name:'Mia', style:'Velocidade', look:5,
     stats:{ spd:9, rch:6, pow:4, srv:5, ctl:6 }, blurb:'Chega a bolas impossíveis. Precisa de ângulos para acabar o ponto.' },
-  { id:'artista', name:'Rafa', nick:'Artista', style:'Toque', look:4,
+  { id:'artista', name:'Ryan', style:'Toque', look:4,
     stats:{ spd:5, rch:6, pow:4, srv:6, ctl:9 }, blurb:'Janela perfeita enorme, amortis e balões certeiros. Pouca velocidade de bola.' },
-  { id:'martelo', name:'Leo', nick:'Martelo', style:'Potência', look:3,
+  { id:'martelo', name:'Leo', style:'Potência', look:3,
     stats:{ spd:5, rch:5, pow:9, srv:6, ctl:5 }, blurb:'Cada pancada perfeita é um vencedor em potência. Erra mais.' },
-  { id:'rede', name:'Sofia', nick:'Rede', style:'Ataque à rede', look:6, trait:'volley',
+  { id:'rede', name:'Sophie', style:'Ataque à rede', look:6, trait:'volley',
     stats:{ spd:6, rch:7, pow:5, srv:7, ctl:5 }, blurb:'Vólei seguro e com mais alcance. Sobe à rede e fecha o ponto.' },
 ];
 export const charById = id => CHARACTERS.find(c => c.id === id) || CHARACTERS[0];

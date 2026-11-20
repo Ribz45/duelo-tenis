@@ -70,10 +70,10 @@ export function createAchievements({ store, toast, sfx, online }) {
   // carreira: os marcos do motor da carreira
   function career(ms) {
     for (const m of ms || []) {
-      if (m.id === 'first_title') unlock('career_title');
+      if (m.id === 'firstTitle') unlock('career_title');
       if (m.id === 'top100') unlock('career_top100');
       if (m.id === 'top10') unlock('career_top10');
-      if (m.id === 'first_major') unlock('career_major');
+      if (m.id === 'firstMajor') unlock('career_major');
       if (m.id === 'no1') unlock('career_no1');
     }
   }

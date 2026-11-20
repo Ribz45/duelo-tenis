@@ -66,14 +66,14 @@ hair, height/build — all done with the existing male/female models and colour 
 
 | Character | Style | Vel. | Alc. | Pot. | Serv. | Cont. | How it plays | Look |
 |---|---|---|---|---|---|---|---|---|
-| **Tomás "Tudo-o-Terreno"** | All-rounder | 6 | 6 | 6 | 6 | 6 | Today's player. Best for learning. | white/navy, cap |
-| **Inês "Canhão"** | Big server | 4 | 5 | 7 | 9 | 5 | Free points on serve, but long rallies are a struggle. | red, tall |
-| **Duarte "Muralha"** | Defender / counter-puncher | 7 | 9 | 3 | 4 | 7 | Gets everything back; you win by outlasting, not by hitting through. | teal, wide stance |
-| **Mia "Relâmpago"** | Speed | 9 | 6 | 4 | 5 | 6 | Reaches impossible balls; needs angles to finish points. | orange, light build |
-| **Rafa "Artista"** | Touch / precision | 5 | 6 | 4 | 6 | 9 | Huge perfect window, deadly drop shots and lobs; low pace. | purple, headband |
-| **Leo "Martelo"** | Power baseliner | 5 | 5 | 9 | 6 | 5 | Every perfect shot is a winner chance, but errors creep in. | black/lime |
+| **Tom** | All-rounder | 6 | 6 | 6 | 6 | 6 | Today's player. Best for learning. | white/navy, cap |
+| **Claire** | Big server | 4 | 5 | 7 | 9 | 5 | Free points on serve, but long rallies are a struggle. | red, tall |
+| **Alex** | Defender / counter-puncher | 7 | 9 | 3 | 4 | 7 | Gets everything back; you win by outlasting, not by hitting through. | teal, wide stance |
+| **Mia** | Speed | 9 | 6 | 4 | 5 | 6 | Reaches impossible balls; needs angles to finish points. | orange, light build |
+| **Ryan** | Touch / precision | 5 | 6 | 4 | 6 | 9 | Huge perfect window, deadly drop shots and lobs; low pace. | purple, headband |
+| **Leo** | Power baseliner | 5 | 5 | 9 | 6 | 5 | Every perfect shot is a winner chance, but errors creep in. | black/lime |
 
-Names are invented (no real players). Each character also gets one small **signature** that is pure feel,
+Names are simple, generic English first names (Tom, Claire, Alex, Mia, Ryan, Leo, Sophie); styles keep a Portuguese label in the game. Each character also gets one small **signature** that is pure feel,
 not stats: a celebration, a racket colour, a grunt pitch.
 
 **Where you pick them:** a horizontal card strip before *Jogo rápido*, *Torneio* and online challenges
@@ -85,11 +85,11 @@ style: Muralha lobs and defends deep, Martelo aims closer to the lines, Artista 
 Canhão goes for the corners on serve. (A real net-rusher needs CPU volleys, which the CPU doesn't do today —
 later phase.)
 
-> *Built:* seven characters — the six above plus **Sofia «Rede»** (net rusher: spd 6, rch 7, pow 5, srv 7, ctl 5, trait: safer volleys
+> *Built:* seven characters — the six above plus **Sophie** (net rusher: spd 6, rch 7, pow 5, srv 7, ctl 5, trait: safer volleys
 > with +0.18 m reach). The CPU now volleys when it is near the net, and so does the human auto-run (it used to pull you back to the bounce).
 > Characters are told apart by model, skin, outfit and hair; body height/build was dropped because scaling the skeleton breaks the
-> racket-to-ball arm calibration. Measured (simulated player, 120–200 points each vs the same medium CPU): Tomás 38 %, Muralha 38 %,
-> Artista 40 %, Rede 41 %, Canhão 42 % (most aces, shortest rallies), Relâmpago 42 %, Martelo 43 % — all within 38–43 %.
+> racket-to-ball arm calibration. Measured (simulated player, 120–200 points each vs the same medium CPU): Tom 38 %, Alex 38 %,
+> Ryan 40 %, Sophie 41 %, Claire 42 % (most aces, shortest rallies), Mia 42 %, Leo 43 % — all within 38–43 %.
 
 **Balance check before release:** extend `tests/balance.js` to play every character against every other
 with the simulated player. Target: no match-up below 40 % or above 60 % over 200 points.

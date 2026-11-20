@@ -1,13 +1,13 @@
 import * as THREE from './vendor/three.module.min.js';
-import { Athlete, LOOK_PRESETS, TRACK_END } from './player3d.js?v=13';
-import { FX } from './fx.js?v=13';
-import { RealAthlete, loadAthleteAssets, warmKits } from './athlete-gltf.js?v=13';
-import { sfx, unlock } from './audio.js?v=13';
-import { createOnline } from './online.js?v=13';
-import { createAchievements, ACH } from './achievements.js?v=13';
-import { createCareer } from './careerui.js?v=13';
-import { CHARACTERS, charById, mods as statMods, total as statTotal, STATS, STAT_LABELS } from './chars.js?v=13';
-import { HL, HW, SVC, BR, serverFor, servePositions as rulePositions, judgeFirstBounce, isMatchOver, matchPointFor, outBy } from './rules.js?v=13';
+import { Athlete, LOOK_PRESETS, TRACK_END } from './player3d.js?v=14';
+import { FX } from './fx.js?v=14';
+import { RealAthlete, loadAthleteAssets, warmKits } from './athlete-gltf.js?v=14';
+import { sfx, unlock } from './audio.js?v=14';
+import { createOnline } from './online.js?v=14';
+import { createAchievements, ACH } from './achievements.js?v=14';
+import { createCareer } from './careerui.js?v=14';
+import { CHARACTERS, charById, mods as statMods, total as statTotal, STATS, STAT_LABELS } from './chars.js?v=14';
+import { HL, HW, SVC, BR, serverFor, servePositions as rulePositions, judgeFirstBounce, isMatchOver, matchPointFor, outBy } from './rules.js?v=14';
 
 // ---------------------------------------------------------------- constantes
 const DW = 5.485, NET_H = 0.914, GRAV = 9.81;
@@ -39,9 +39,9 @@ const HELPS = {
   pro:    { label:'Pro',    green:0.05, auto:false, recover:false, drift:0.7, magnet:1.5, fine:1.1, preview:false, marker:false, err:1.12, reach:1.6 },
 };
 const TOUR = [
-  { round:'Quartos-de-final', opp:'Duarte «Muralha»', level:0, surface:'clay',  char:'muralha' },
-  { round:'Meias-finais',     opp:'Sofia «Rede»',     level:1, surface:'grass', char:'rede' },
-  { round:'Final',            opp:'Inês «Canhão»',    level:2, surface:'hard',  char:'canhao' },
+  { round:'Quartos-de-final', opp:'Alex',   level:0, surface:'clay',  char:'muralha' },
+  { round:'Meias-finais',     opp:'Sophie', level:1, surface:'grass', char:'rede' },
+  { round:'Final',            opp:'Claire', level:2, surface:'hard',  char:'canhao' },
 ];
 
 const $ = id => document.getElementById(id);
@@ -398,6 +398,7 @@ function launch(idx, from, v, g, isServe, fromNet, q = 0.7, spin = 0.3) {
   const fh = fhSide(P[idx], from.x);
   if (M.objective && objHook('shot', { idx, isServe })) return;                 // desafio: a resposta ao serviço acaba a tentativa
   B.shotType = isServe ? 'serve' : (B.nextType || 'topspin'); B.nextType = null;
+  if (idx === M.me) M.myLast = B.shotType;
   B.p.copy(from); B.pp.copy(from); B.v.copy(v); B.g = g; B.spin = spin; B.bounces = 0; B.hitter = idx; B.isServe = isServe;
   B.live = true; B.held = false; B.netHit = false; B.netCord = false; B.hitId++;
   M.phase = 'rally'; M.toss = null;
@@ -496,6 +497,7 @@ function startToss(idx, cpuAim) {
 }
 function failToss() {
   const idx = M.toss.idx; M.toss = null; B.held = true;
+  if (M.mode === 'online' && idx === M.me) netSend({ t:'tossx' });
   if (idx === M.me) { toast('Lança outra vez', 'info', 'Desliza para cima quando a bola estiver lá em cima', 1200); touch.mode = null; touch.aim = null; }
   else if (P[idx].isCPU) after(0.8, cpuServe);
 }
@@ -504,6 +506,7 @@ function releaseServe(idx, aim) {
   const tt = simTime - M.toss.t0;
   if (tt < 0.28) {
     M.toss = null; B.held = true;
+    if (M.mode === 'online' && idx === M.me) netSend({ t:'tossx' });
     if (idx === M.me) toast('Cedo demais', 'info', 'Toca para lançar e desliza quando a bola estiver no ponto mais alto', 1300);
     else if (P[idx].isCPU) after(0.8, cpuServe);              // o CPU volta a lançar (antes ficava parado para sempre)
     return;
@@ -624,7 +627,8 @@ function applyPoint(w, reason) {
   if (mine && reason === 'Ponto!' && B.hitter === M.me) reason = 'Vencedor!';
   let sub = mine ? explainWin(reason) : explainLoss(reason);
   const over = isMatchOver(M.score);
-  if (!over && matchPointFor(M.score) !== -1) sub += ' · Match point';
+  const mp = over ? -1 : matchPointFor(M.score);
+  if (mp !== -1) sub += M.bestOf === 3 && M.sets[mp] < 1 ? ' · Set point' : ' · Match point';
   if ((M.pointHits || 0) >= 20) sub = M.pointHits + ' pancadas · ' + sub;
   if (reason === 'Ás!' && B.svKmh) sub += ' · ' + B.svKmh + ' km/h';
   toast(reason, mine ? 'good' : 'bad', sub, 1300);
@@ -637,7 +641,7 @@ function applyPoint(w, reason) {
   const special = (M.pointHits || 0) >= 16 || (over && w === M.me) || (reason === 'Ás!' && (B.svKmh || 0) >= 165);
   if (special && M.mode !== 'online' && M.mode !== 'challenge' && store.get('replays', 'on') !== 'off') after(0.8, () => startReplay(Math.min(5, 1.4 + (M.pointHits || 0) * 0.45)));
   if (!over) after(1.0, walkToPositions);
-  after(2.3, () => { if (M.objective) { if (M.objective.done) objFinish(); else preparePoint(); } else if (over) finishMatch(); else preparePoint(); });
+  after(2.3, () => { if (M.objective) { if (M.objective.done) objFinish(); else { if (M.objective.kind === 'rally') { M.score = [0, 0]; M.pointsPlayed = 0; } preparePoint(); } } else if (over) finishMatch(); else preparePoint(); });
 }
 // ---------------------------------------------------------------- desafios (treino da carreira e desafio do dia)
 // kinds: serveTarget (N de 10 serviços numa zona), aces (N ases em 10 serviços), rally (troca de N pancadas),
@@ -653,7 +657,7 @@ function objSetup(o) {
   o.n = 0; o.score = 0; o.done = false; o.passed = false;
   o.max = o.kind === 'rally' ? 4 : o.kind === 'dropWinner' ? 8 : 10;
   if (o.kind === 'serveTarget' || o.kind === 'aces') M.first = M.me;                 // servir sempre eu, do lado direito
-  if (o.kind === 'rally') M.L = { ...levelFor(30), q:0.93, miss:0, width:0.9, pow:[0.25, 0.4], depth:[7.6, 9.2], ace:0 };   // CPU colaborante
+  if (o.kind === 'rally') { M.L = { ...levelFor(30), q:0.93, miss:0, width:0.9, pow:[0.25, 0.4], depth:[7.6, 9.2], ace:0 }; M.first = M.me; }   // CPU colaborante; sirvo sempre eu
   updateObjHud();
 }
 function updateObjHud() {
@@ -675,6 +679,7 @@ function objHook(ev, d) {
     return true;
   };
   if (ev === 'serveBounce' && serveKind && B.hitter === M.me) {
+    if (d.call === 'in' && B.netCord) return false;                     // let: repete o serviço, não gasta tentativa
     if (o.kind === 'serveTarget') {
       const ok = d.call === 'in' && inZone(o, d.x);
       if (ok) { o.score++; popText('Na zona', 'gold', new V3(d.x, 0.6, d.z)); sfx.ui('toggle'); } else popText(d.call === 'in' ? 'Fora da zona' : 'Falta', 'bad', new V3(d.x, 0.6, d.z));
@@ -685,12 +690,18 @@ function objHook(ev, d) {
   }
   if (ev === 'ace' && o.kind === 'aces') { o.score++; popText('Ás!', 'gold', new V3(B.p.x, 1, B.p.z)); sfx.cheer(0.5); return attemptOver(); }
   if (ev === 'shot' && o.kind === 'aces' && d.idx !== M.me && B.isServe) { popText('Devolvido', 'info', new V3(B.p.x, 1.4, B.p.z)); return attemptOver(); }
+  if (ev === 'shot' && o.kind === 'rally' && (M.pointHits || 0) + 1 >= o.goal) {   // troca de bolas: acaba logo que chega ao objetivo
+    o.score = (M.pointHits || 0) + 1; o.n++; o.done = true; updateObjHud();
+    popText(o.score + ' pancadas!', 'gold', new V3(B.p.x, 1.6, B.p.z)); sfx.cheer(0.6);
+    after(0.7, () => { M.phase = 'pointover'; B.live = false; objFinish(); });
+    return false;
+  }
   if (ev === 'fault' && serveKind) return attemptOver();
   if (ev === 'point' && !serveKind) {
     o.n++;
     if (o.kind === 'rally') o.score = Math.max(o.score, d.hits);
     if (o.kind === 'winners' && d.w === M.me && d.hitter === M.me && d.reason === 'Ponto!') o.score++;
-    if (o.kind === 'dropWinner' && d.w === M.me && d.hitter === M.me && d.last === 'drop' && (d.reason === 'Ponto!' || d.reason === 'Fora!' || d.reason === 'Rede!')) o.score = 1;
+    if (o.kind === 'dropWinner' && d.w === M.me && ((d.hitter === M.me && d.last === 'drop' && d.reason === 'Ponto!') || (d.hitter !== M.me && M.myLast === 'drop' && (d.reason === 'Fora!' || d.reason === 'Rede!')))) o.score = 1;
     if (o.score >= o.goal || o.n >= o.max) o.done = true;
     updateObjHud();
   }
@@ -715,7 +726,7 @@ function objFinish() {
 function startChallenge(obj, extra = {}) {
   obj = { label:objLabel(obj), ...obj };
   const lv = obj.cpuTotal ? null : (obj.level ?? 1), oc = charById(extra.opp || 'tudo');
-  startMatch({ mode:'challenge', me:0, names:[myName(), oc.name + ' «' + oc.nick + '»'], surface:extra.surface || 'hard', level:lv ?? 1, cpuTotal:obj.cpuTotal,
+  startMatch({ mode:'challenge', me:0, names:[myName(), oc.name], surface:extra.surface || 'hard', level:lv ?? 1, cpuTotal:obj.cpuTotal,
     first:0, chars:[extra.char || myChar(), oc.id], stats:extra.stats ? [extra.stats, null] : null, perks:extra.perks ? [extra.perks, []] : null, looks:extra.looks, objective:{ ...obj } });
   objSetup(M.objective);
   if (M.objective.kind === 'serveTarget' || M.objective.kind === 'aces') { M.score = [0, 0]; preparePoint(); }
@@ -743,7 +754,7 @@ function dailySpec(day) {
 async function openDaily() {
   const day = todayUTC(), d = dailySpec(day), ch = charById(d.char), best = store.get('dailyBest', {})[day];
   $('dailyWhat').textContent = objLabel(d);
-  $('dailyWho').textContent = 'Hoje jogas com ' + ch.name + ' «' + ch.nick + '» · ' + SURFACES[d.surface].label;
+  $('dailyWho').textContent = 'Hoje jogas com ' + ch.name + ' (' + ch.style.toLowerCase() + ') · ' + SURFACES[d.surface].label;
   $('dailyBest').textContent = best !== undefined ? 'O teu melhor hoje: ' + best : 'Ainda não jogaste hoje';
   $('dailyBoard').innerHTML = online.hasAccount() ? '<li class="muted">A carregar…</li>' : '<li class="muted">Cria o perfil em "Jogar com amigos" para entrares na tabela com os teus amigos.</li>';
   show('dailyScr');
@@ -886,7 +897,8 @@ const TIP_TIMING = 'Faz o swipe quando a bola chega à tua frente, à altura da 
 function tryHit(pl, sw, err) {
   if (!reachable(pl)) { whiff(pl, 'Fora de alcance'); countTip('reach', 1, 'Toca no campo para correres até à bola, ou liga a Ajuda Total no menu.'); return; }
   const volley = B.bounces === 0;
-  const clutch = matchPointFor(M.score) !== -1 ? pl.mods.clutch : 1;
+  const mpp = matchPointFor(M.score);
+  const clutch = mpp !== -1 && (M.bestOf !== 3 || M.sets[mpp] >= 1) ? pl.mods.clutch : 1;   // treinador mental: só no match point
   const q = timingQ(err, greenWin() * pl.mods.window * clutch * (B.isServe ? 1.5 : 1));
   const v = executeShot(pl.idx, { type:sw.type, tx:sw.tx, tz:sw.tz, power:sw.power, q, err });
   const name = sw.type === 'lob' ? 'Balão' : sw.type === 'drop' ? 'Amorti' : volley ? 'Vólei' : 'Topspin';
@@ -994,6 +1006,7 @@ function cpuUpdate(pl) {
 function cpuTryHit(pl) {
   if (!reachable(pl)) { whiff(pl); return; }
   const L = curL();
+  const coop = M.objective && M.objective.kind === 'rally';       // desafio de troca de bolas: o CPU só devolve
   // serviço forte e bem colocado: o CPU às vezes não consegue ler e falha a resposta (o ás tem de ser possível, mais nos níveis baixos)
   if (B.isServe && Math.random() < (B.svPress || 0) ** 2 * L.ace) { whiff(pl); return; }
   const foe = P[other(pl.idx)], r = -pl.side;
@@ -1005,15 +1018,15 @@ function cpuTryHit(pl) {
   const stretched = Math.hypot(pl.vel.x, pl.vel.z) > 3.2 || Math.abs(B.p.x - pl.pos.x) > 1.25;   // a correr ou esticado: joga mais seguro
   const W = Math.min(3.4, L.width * ST.w);
   let tx = stretched ? rand(-1.2, 1.2) : Math.random() < 0.7 ? -Math.sign(fx) * rand(W * 0.5, W) : rand(-W, W) * 0.6;
-  const lob = Math.abs(foe.pos.z) < 6.5 ? Math.random() < 0.45 : Math.random() < (stretched ? 0.25 : 0.04) * ST.lob;
-  if (!lob && !stretched && Math.abs(foe.pos.z) > HL - 0.6 && Math.random() < (0.05 + L.q * 0.08) * ST.drop) {
+  const lob = !coop && (Math.abs(foe.pos.z) < 6.5 ? Math.random() < 0.45 : Math.random() < (stretched ? 0.25 : 0.04) * ST.lob);
+  if (!coop && !lob && !stretched && Math.abs(foe.pos.z) > HL - 0.6 && Math.random() < (0.05 + L.q * 0.08) * ST.drop) {
     executeShot(pl.idx, { type:'drop', tx:rand(-2.6, 2.6), tz:r * rand(1.8, 3.0), power:rand(0.2, 0.6), q:clamp(L.q + rand(-0.15, 0.12), 0.1, 1), err:0 });
     return;
   }
   let depth = lob ? rand(9, 10.8) : Math.min(10.9, rand(L.depth[0], L.depth[1]) + ST.depth);
   // erros não forçados: mais prováveis quando a bola vem forte
-  const press = clamp((B.v.length() - 24) / 14, 0, 1);            // bola muito rápida (ritmo novo): mais erros
-  if (Math.random() < (L.miss + press * 0.15) * ST.miss) {
+  const press = coop ? 0 : clamp((B.v.length() - 24) / 14, 0, 1);  // bola muito rápida (ritmo novo): mais erros
+  if (!coop && Math.random() < (L.miss + press * 0.15) * ST.miss) {
     const kind = Math.random();
     if (kind < 0.4) depth = rand(12.2, 13.2);
     else if (kind < 0.75) tx = Math.sign(tx || 1) * rand(4.4, 5.2);
@@ -1393,7 +1406,8 @@ function finishMatch() {
   sfx.ui(won ? 'win' : 'lose'); if (won) sfx.cheer(1);
   $('endSub').textContent = sub; $('bEndMain').textContent = main; $('bEndMain').disabled = false;
   renderStats(); $('bEndMenu').textContent = 'Menu';
-  ach.afterMatch({ mode:M.mode, won, level:M.L ? 1 : M.level, help:M.help, me:M.stats[M.me], score:[M.score[M.me], M.score[other(M.me)]],
+  const tot = M.bestOf === 3 ? M.setScores.reduce((a, x) => [a[0] + x[M.me], a[1] + x[other(M.me)]], [0, 0]) : [M.score[M.me], M.score[other(M.me)]];
+  ach.afterMatch({ mode:M.mode, won, level:M.L ? 1 : M.level, help:M.help, me:M.stats[M.me], score:tot,
     maxDeficit:M.maxDeficit, char:P[M.me].char && P[M.me].char.id, night:M.night });
   if (onMatchEnd) try { onMatchEnd({ won, w }); } catch (e) { console.warn('resultado não guardado', e); }
   if (M.mode === 'career') try {
@@ -1465,7 +1479,7 @@ $('bQuick').addEventListener('click', () => {
   audio(); saveName(myName());
   const lv = store.get('level', 1);
   const oc = charById(otherChar(myChar()));
-  startMatch({ mode:'cpu', me:0, names:[myName(), oc.name + ' «' + oc.nick + '» · ' + LEVELS[lv].label], surface:store.get('surface', 'hard'), level:lv,
+  startMatch({ mode:'cpu', me:0, names:[myName(), oc.name + ' · ' + LEVELS[lv].label], surface:store.get('surface', 'hard'), level:lv,
     first:Math.random() < 0.5 ? 0 : 1, chars:[myChar(), oc.id], night:store.get('time', 'day') === 'night' });
 });
 function renderBracket() {
@@ -1484,25 +1498,26 @@ $('bTourPlay').addEventListener('click', () => {
   startMatch({ mode:'tour', me:0, names:[myName(), r.opp], surface:r.surface, level:r.level, first:Math.random() < 0.5 ? 0 : 1, chars:[myChar(), r.char] });
 });
 $('bEndMain').addEventListener('click', () => {
-  if (M.mode === 'challenge') { const o = M.objective; if (o && o.onRetry) o.onRetry(); else if (o) startChallenge({ ...o, onDone:o.onDone, onRetry:o.onRetry, onExit:o.onExit }); return; }
-  if (M.mode === 'career' && careerHooks.onMain) { careerHooks.onMain(); return; }
+  if (M.mode === 'challenge') { const o = M.objective; quietEnd(); if (o && o.onRetry) o.onRetry(); else if (o) startChallenge({ ...o, onDone:o.onDone, onRetry:o.onRetry, onExit:o.onExit }); return; }
+  if (M.mode === 'career' && careerHooks.onMain) { quietEnd(); careerHooks.onMain(); return; }
   if (M.mode === 'tour') { renderBracket(); show('tourScr'); return; }
   if (M.mode === 'online') {
     M.wantRematch = true; netSend({ t:'rematch' }); $('bEndMain').textContent = 'À espera do amigo…'; $('bEndMain').disabled = true; maybeRematch(); return;
   }
-  startMatch({ mode:'cpu', me:0, names:M.names, surface:M.surface, level:M.level, first:Math.random() < 0.5 ? 0 : 1, chars:[myChar(), M.chars[1]] });
+  startMatch({ mode:'cpu', me:0, names:M.names, surface:M.surface, level:M.level, night:M.night, first:Math.random() < 0.5 ? 0 : 1, chars:[myChar(), M.chars[1]] });
 });
 $('bEndMenu').addEventListener('click', () => {
-  if (M.mode === 'challenge' && M.objective && M.objective.onExit) { const f = M.objective.onExit; $('bEndMenu').textContent = 'Menu'; f(); return; }
-  if (M.mode === 'career' && careerHooks.onExit) { careerHooks.onExit(); return; }
+  if (M.mode === 'challenge' && M.objective && M.objective.onExit) { const f = M.objective.onExit; quietEnd(); $('bEndMenu').textContent = 'Menu'; f(); return; }
+  if (M.mode === 'career' && careerHooks.onExit) { quietEnd(); careerHooks.onExit(); return; }
   $('bEndMenu').textContent = 'Menu'; goMenu();
 });
 const careerHooks = { onMain:null, onExit:null };          // ligados pelo modo carreira
+function quietEnd() { M.mode = 'menu'; M.phase = 'idle'; timers.length = 0; B.live = false; M.toss = null; endReplay(); sfx.crowdBed(false); setNight(false); }
 
 // ---------------------------------------------------------------- online (servidor próprio: perfis, lobby, convites; relé + ligação direta)
 const NET = { rtt:0.1, pingT:null, lastPos:0, host:false, match:null, remoteChar:'tudo' };
 const netSend = m => online.send(m);
-function netClose() { clearInterval(NET.pingT); NET.pingT = null; online.close(); NET.match = null; }
+function netClose() { clearInterval(NET.pingT); NET.pingT = null; online.close(); NET.match = null; NET.host = false; NET.remoteChar = 'tudo'; }
 function netError(title, text) {
   // no fim do jogo não interrompe o quadro de estatísticas: só desliga a revanche
   if (M.mode === 'online' && M.phase === 'over' && !$('endScr').classList.contains('off')) {
@@ -1517,7 +1532,10 @@ const online = createOnline({
   show, toast, goMenu, netError, inMatch, myName, setName:saveName, surface:() => store.get('surface', 'hard'), myChar:() => myChar(),
   onNet:m => onNet(m),
   betweenPoints:() => M.mode !== 'online' || M.phase !== 'rally',
-  leaveForMatch:() => { if (inMatch() && M.mode !== 'online') { M.mode = 'menu'; timers.length = 0; B.live = false; sfx.crowdBed(false); } },
+  leaveForMatch:() => {                                          // vai começar um duelo: limpa qualquer jogo anterior (mesmo outro online já acabado)
+    if (inMatch()) { M.mode = 'menu'; M.phase = 'idle'; timers.length = 0; B.live = false; M.toss = null; endReplay(); sfx.crowdBed(false); }
+    clearInterval(NET.pingT); NET.host = false; NET.remoteChar = 'tudo'; NET.match = null;
+  },
   hostStart:m => { NET.host = true; NET.match = m; startPing(); sendStart(); },
 });
 screens.push(...online.screens);
@@ -1568,7 +1586,9 @@ function maybeRematch() { if (NET.host && M.wantRematch && M.remoteRematch) send
 function onNet(m) {
   switch (m.t) {
     case 'start': {
-      if (NET.host && M.mode === 'online') break;
+      const LK = online.link();
+      if (!LK || LK.m.role !== 'guest') break;                        // só o convidado começa ao receber 'start'
+      if (M.mode === 'online' && M.matchId === m.matchId && M.game === m.game && M.phase !== 'over') break;   // repetido
       const L = online.link(); NET.host = false; NET.match = L ? L.m : null; online.guestStarted(); startPing();
       startMatch({ mode:'online', me:1, names:m.names, surface:m.surface, first:m.first, night:!!m.night, chars:Array.isArray(m.chars) ? m.chars.map(c => charById(c).id) : ['tudo', 'tudo'], matchId:m.matchId, game:m.game, opp:NET.match && NET.match.opp });
       break;
@@ -1576,7 +1596,8 @@ function onNet(m) {
     case 'char': NET.remoteChar = String(m.id || 'tudo'); break;
     case 'emote': if (M.mode === 'online') showEmote(other(M.me), String(m.k)); break;
     case 'pos': { if (M.mode !== 'online') break; const p = P[other(M.me)]; p.netPos = { x:m.x, z:m.z }; break; }
-    case 'toss': if (M.mode !== 'online') break; if (M.phase === 'pointover') runTimers(true); if (M.phase === 'preserve') M.toss = { idx:other(M.me), t0:simTime, aim:null, releaseAt:null }; break;
+    case 'toss': if (M.mode !== 'online') break; if (M.phase === 'pointover') runTimers(true); if (M.phase === 'preserve') { M.toss = { idx:other(M.me), t0:simTime, aim:null, releaseAt:null }; B.held = false; } break;
+    case 'tossx': if (M.mode === 'online' && M.toss && M.toss.idx === other(M.me) && M.phase === 'preserve') { M.toss = null; B.held = true; } break;
     case 'hit': {
       if (M.mode !== 'online') break;
       if (M.phase === 'pointover') runTimers(true);
@@ -1593,7 +1614,14 @@ function onNet(m) {
     case 'ping': netSend({ t:'pong', c:m.c }); break;
     case 'pong': NET.rtt = (performance.now() - m.c) / 1000; break;
     case 'rematch': M.remoteRematch = true; maybeRematch(); break;
-    case 'bye': netError('Ligação terminada', 'O teu amigo saiu do jogo.'); break;
+    case 'bye': {
+      const mid = M.mode === 'online' && M.phase !== 'over' && M.matchId && M.opp && online.me();
+      if (mid) {                                                  // saiu a meio: vitória por desistência para quem fica
+        const me = online.me(), ids = M.me === 0 ? [me.id, M.opp.id] : [M.opp.id, me.id];
+        online.reportMatch({ mode:'online', matchId:M.matchId, game:M.game, winner:me.id, score:[M.score[0], M.score[1]], stats:{ [ids[0]]:M.stats[0], [ids[1]]:M.stats[1] } });
+      }
+      netError('Ligação terminada', mid ? 'O teu amigo saiu a meio. Ganhaste por desistência.' : 'O teu amigo saiu do jogo.'); break;
+    }
   }
 }
 const randomId = () => Array.from(crypto.getRandomValues(new Uint8Array(12)), x => x.toString(16).padStart(2, '0')).join('');
@@ -1612,10 +1640,10 @@ const OFFLINE_MSG = 'O jogo com amigos precisa de internet. Sem ligação podes 
 // ---------------------------------------------------------------- escolher tenista
 let charReturn = 'menu';
 function lookHex(i) { const l = LOOK_PRESETS[i] || LOOK_PRESETS[0]; return '#' + (l.shirt === 0xf4f4f4 ? l.shorts : l.shirt).toString(16).padStart(6, '0'); }
-const charLabel = c => c.name + ' «' + c.nick + '»';
+const charLabel = c => c.name;
 function renderCharChips() {
   const c = charById(myChar());
-  const html = `<span class="av" style="--c:${lookHex(c.look)}">${escHtml(c.name[0])}</span><span class="mi"><small>O teu tenista</small><b>${escHtml(charLabel(c))}</b></span><span class="chg">Trocar</span>`;
+  const html = `<span class="av" style="--c:${lookHex(c.look)}">${escHtml(c.name[0])}</span><span class="mi"><small>O teu tenista · ${escHtml(c.style)}</small><b>${escHtml(charLabel(c))}</b></span><span class="chg">Trocar</span>`;
   $('bChar').innerHTML = html; $('bCharLobby').innerHTML = html;
 }
 function renderChars() {
@@ -1677,16 +1705,21 @@ function recordFrame(bp, showBall) {
   if (M.replay || !inMatch() || M.mode === 'online' || M.mode === 'challenge' || M.phase === 'over') return;
   REC.buf.push({ t:simTime, b:[bp.x, bp.y, bp.z], on:showBall, p:P.map(pl => ({ x:pl.pp.x + (pl.pos.x - pl.pp.x) * alpha, z:pl.pp.z + (pl.pos.z - pl.pp.z) * alpha,
     vx:pl.vel.x, vz:pl.vel.z, act:pl.act ? { ...pl.act } : null, mode:figMode(pl), split:simTime - (pl.splitAt ?? -9) })) });
-  if (REC.buf.length > REC.max) REC.buf.shift();
+  while (REC.buf.length && (simTime - REC.buf[0].t > 7 || REC.buf.length > 1200)) REC.buf.shift();
 }
 function startReplay(span = 3.6) {
   const end = simTime, frames = REC.buf.filter(f => f.t >= Math.max(end - span, M.pointStartT || 0) - 0.2 && f.t <= end);
   if (frames.length < 20) return;
   M.replay = { frames, t:0, t0:frames[0].t, dur:frames[frames.length - 1].t - frames[0].t, speed:0.55, side:Math.random() < 0.5 ? -1 : 1 };
-  $('replayTag').classList.add('show'); $('toast').classList.remove('show');
+  $('replayTag').classList.add('show'); $('toast').classList.remove('show'); $('quit').classList.add('hidden'); $('camBtn').classList.add('hidden');
 }
-function endReplay() { if (!M.replay) return; M.replay = null; $('replayTag').classList.remove('show'); }
-addEventListener('pointerdown', e => { if (M.replay) { e.stopPropagation(); e.preventDefault(); endReplay(); } }, true);
+function endReplay() {
+  if (!M.replay) return; M.replay = null; $('replayTag').classList.remove('show');
+  if (inMatch()) { $('quit').classList.remove('hidden'); $('camBtn').classList.remove('hidden'); }
+}
+let swallowClick = 0;
+addEventListener('pointerdown', e => { if (M.replay) { e.stopPropagation(); e.preventDefault(); endReplay(); swallowClick = performance.now(); } }, true);
+addEventListener('click', e => { if (performance.now() - swallowClick < 700) { e.stopPropagation(); e.preventDefault(); swallowClick = 0; } }, true);   // o toque que salta a repetição não carrega em nada
 function replayFrame(dt) {
   const R = M.replay; R.t += dt * R.speed;
   if (R.t >= R.dur) { endReplay(); return; }
@@ -1799,7 +1832,7 @@ if (oldInvite) {
 else goMenu();
 
 // ganchos para testes
-window.__dt = { M, B, P, startMatch, NET, online, advance, predictBall, touch, aimFromSwipe, serveAimFromSwipe, commitShot, startToss, releaseServe, serveTarget, onTap, camera, debugCam, CLOSE, CAM, setCam, LAB, render:() => renderer.render(scene, camera),
+window.__dt = { M, B, P, startMatch, startChallenge, NET, online, advance, predictBall, touch, aimFromSwipe, serveAimFromSwipe, commitShot, startToss, releaseServe, serveTarget, onTap, camera, debugCam, CLOSE, CAM, setCam, LAB, render:() => renderer.render(scene, camera),
   freeze(on) { hitStopUntil = on ? Infinity : 0; }, renderer, perf,
   simulate(sec) { for (let t = 0; t < sec; t += STEP) step(STEP); },
   get simTime() { return simTime; } };

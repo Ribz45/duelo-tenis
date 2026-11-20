@@ -2,7 +2,7 @@
 // Servidor próprio (Cloudflare Worker, ver server/ e docs/online-api.md).
 // Ligação durante o jogo: começa SEMPRE pelo relé do servidor (WebSocket, funciona em qualquer rede) e passa para
 // ligação direta (WebRTC) quando as duas redes o permitem — nunca fica sem ligação por causa do tipo de rede.
-import { API_BASE } from './config.js?v=13';
+import { API_BASE } from './config.js?v=14';
 
 export function createOnline(G) {
   const $ = id => document.getElementById(id);
@@ -80,13 +80,14 @@ export function createOnline(G) {
     ws.onopen = () => {
       S.backoff = 1000; setHub('on');
       clearInterval(S.pingT); S.pingT = setInterval(() => hubSend({ t:'ping' }), 25000);
-      if (S.link) hubSend({ t:'status', s:'match' });
+      hubSend({ t:'status', s:S.link ? 'match' : 'lobby' });          // nunca fica "A jogar" por engano depois de uma religação
     };
     ws.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch (x) { return; } onHub(m); };
     ws.onclose = ev => {
       clearInterval(S.pingT);
       if (S.ws === ws) S.ws = null;
       setHub('off');
+      if (S.out) { S.out = null; renderLobby(); }                       // o servidor cancela o convite quando o lobby cai
       if (ev.code === 4001) return;                                     // demasiadas ligações abertas (outros separadores)
       scheduleReconnect();
     };
@@ -118,12 +119,14 @@ export function createOnline(G) {
         break;
       }
       case 'invite':
-        if (G.inMatch() && (!S.link)) { /* a jogar contra o CPU: mostra na mesma, aceitar termina o jogo */ }
+        if (S.link) break;                                               // a meio de um duelo online não aparece nenhum convite
         showInvite(m);
         break;
       case 'invite-sent':
-        if (!S.out) { hubSend({ t:'invite-cancel', id:m.id }); break; }      // cancelado antes de o servidor confirmar
-        S.out = { id:m.id, to:m.to, exp:m.exp }; renderLobby(); break;
+        if (!S.out || S.out.to !== m.to) { hubSend({ t:'invite-cancel', id:m.id }); break; }   // cancelado (ou trocado) antes de o servidor confirmar
+        S.out = { id:m.id, to:m.to, exp:m.exp }; renderLobby();
+        clearTimeout(S.outT); S.outT = setTimeout(() => { if (S.out && S.out.id === m.id) { S.out = null; renderLobby(); G.toast('Sem resposta', 'info', 'O convite expirou', 1600); } }, Math.max(1000, (m.exp || Date.now() + 30000) - Date.now() + 1500));
+        break;
       case 'invite-failed': {
         S.out = null; renderLobby();
         const f = friendById(m.to), who = f ? f.name : 'O teu amigo';
@@ -142,7 +145,12 @@ export function createOnline(G) {
         if (S.out && S.out.id === m.id) { S.out = null; renderLobby(); }
         G.toast('Convite expirado', 'info', '', 1500);
         break;
-      case 'match': hideInvite(); S.out = null; openRoom(m); break;
+      case 'match': {
+        // só entra o aparelho que enviou o convite ou que o aceitou (a mesma conta pode estar aberta noutro telemóvel)
+        const mine = m.role === 'host' ? S.out && S.out.to === (m.opp && m.opp.id) : S.accepting === (m.opp && m.opp.id);
+        if (!mine) { hideInvite(); G.toast('Duelo noutro aparelho', 'info', 'Começou um jogo na tua conta noutro telemóvel', 2000); break; }
+        hideInvite(); S.out = null; S.accepting = null; clearTimeout(S.outT); openRoom(m); break;
+      }
       case 'friend-request': G.toast('Pedido de amizade', 'good', (m.from && m.from.name || 'Alguém') + ' quer ser teu amigo', 2200); loadMe().catch(() => {}); break;
       case 'friend-added': G.toast('Novo amigo', 'good', (m.friend && m.friend.name || '') + ' já está na tua lista', 2000); loadMe().catch(() => {}); break;
       case 'friend-removed': loadMe().catch(() => {}); break;
@@ -184,56 +192,111 @@ export function createOnline(G) {
     const id = S.inc.id;
     if (!hubSend({ t:'invite-reply', id, accept })) { G.toast('Sem ligação ao lobby', 'bad', '', 1400); return; }
     if (!accept) hideInvite();
-    else { $('inviteBar').querySelector('.iv-t').textContent = 'A entrar…'; }
+    else { S.accepting = S.inc.from && S.inc.from.id; $('inviteBar').querySelector('.iv-t').textContent = 'A entrar…'; }
   }
 
   // ---------------------------------------------------------------- ligação ao adversário (sala do jogo)
+  // Entrega garantida: as mensagens que mudam o jogo (início, pancadas, lançamento, pontos, faltas, revanche) levam um número
+  // de ordem, ficam guardadas até o outro telemóvel confirmar e são reenviadas pelo relé; quem recebe trata-as pela ordem
+  // certa e ignora repetidas. Assim uma mensagem perdida (rede a mudar, ligação direta a morrer) nunca bloqueia nem divide o jogo.
+  const PROTO = 2;                                          // sobe quando as mensagens do jogo mudam (os dois têm de ter a mesma versão)
+  const CRIT = new Set(['start', 'hit', 'toss', 'tossx', 'point', 'fault', 'let', 'rematch']);
   function openRoom(m) {
     closeRoom(true);
-    const L = S.link = { m, ws:null, pc:null, dc:null, useP2P:false, peer:false, started:false, closed:false, tries:0, pendingIce:[], leaveT:null, games:0 };
+    const L = S.link = { m, ws:null, pc:null, pcP:null, dc:null, useP2P:false, peer:false, started:false, closed:false, tries:0, downSince:0, pendingIce:[],
+      leaveT:null, joinT:null, seq:0, unacked:new Map(), rq:0, rbuf:new Map(), lastRx:Date.now(), pumpT:null };
     hubSend({ t:'status', s:'match' });
-    G.leaveForMatch();                                  // sai de um jogo contra o CPU, se estiver a decorrer
+    G.leaveForMatch();                                  // sai de qualquer jogo que estivesse a decorrer
     $('connTitle').textContent = 'A ligar a ' + m.opp.name;
     $('connSub').textContent = 'A preparar o campo…';
     G.show('connScr');
     connectRoom(L);
+    L.pumpT = setInterval(() => pump(L), 300);
     // se o adversário não aparecer, não fica preso para sempre
     L.joinT = setTimeout(() => { if (S.link === L && !L.started) lost('O teu amigo não entrou', 'O jogo não começou. Tenta desafiar outra vez.'); }, 20000);
   }
+  const relayOpen = L => L.ws && L.ws.readyState === 1;
+  const dcOpen = L => L.dc && L.dc.readyState === 'open';
   function connectRoom(L) {
+    if (L.closed || S.link !== L) return;
     let ws;
     try { ws = new WebSocket(wsBase() + '/ws/room/' + encodeURIComponent(L.m.matchId) + '?ticket=' + encodeURIComponent(L.m.ticket)); }
-    catch (e) { return lost('Erro de ligação', 'Não foi possível abrir a sala do jogo.'); }
+    catch (e) { return retryRoom(L); }
     L.ws = ws;
-    ws.onopen = () => { L.tries = 0; };
-    ws.onmessage = e => onFrame(L, e.data);
+    ws.onopen = () => { if (L.ws !== ws) return; L.tries = 0; L.downSince = 0; };
+    ws.onmessage = e => { if (L.ws === ws) onFrame(L, e.data); };
     ws.onclose = ev => {
-      if (L.closed || S.link !== L || L.ws !== ws) return;      // socket antigo (já substituído por uma religação)
+      if (L.closed || S.link !== L || L.ws !== ws) return;      // socket antigo (já substituído por uma religação nossa)
       L.ws = null;
       if (ev.code === 4003 || ev.code === 1008) return lost('Sala fechada', 'O convite já não é válido. Desafia outra vez.');
-      if (L.tries++ < 5) { if (L.started) G.toast('A religar…', 'info', '', 1200); setTimeout(() => { if (!L.closed && S.link === L) connectRoom(L); }, 500 * L.tries); }
-      else if (!(L.dc && L.dc.readyState === 'open')) lost('Ligação perdida', 'Perdeste a ligação ao teu amigo.');
+      if (ev.code === 4000) return lost('Jogo aberto noutro aparelho', 'A tua conta entrou neste duelo noutro telemóvel.');
+      retryRoom(L);
     };
     ws.onerror = () => {};
+  }
+  // religar ao relé: tenta durante 25 s (sem contar o tempo sem rede); com a ligação direta viva continua a tentar
+  function retryRoom(L) {
+    if (L.closed || S.link !== L) return;
+    if (!L.downSince) L.downSince = Date.now();
+    if (L.started) G.toast('A religar…', 'info', '', 1200);
+    if (!navigator.onLine) { addEventListener('online', () => connectRoom(L), { once:true }); return; }
+    if (Date.now() - L.downSince > 25000 && !(dcOpen(L) && Date.now() - L.lastRx < 5000)) return lost('Ligação perdida', 'Perdeste a ligação ao teu amigo.');
+    L.tries++;
+    setTimeout(() => { if (!L.closed && S.link === L && !relayOpen(L)) connectRoom(L); }, Math.min(2500, 400 * L.tries));
+  }
+  function armLeave(L, ms) {
+    clearTimeout(L.leaveT);
+    L.leaveT = setTimeout(() => {
+      if (S.link !== L || L.peer) return;
+      if (dcOpen(L) && Date.now() - L.lastRx < 5000) return armLeave(L, 5000);   // o relé caiu mas a ligação direta continua viva
+      lost('Ligação terminada', 'O teu amigo saiu do jogo.');
+    }, ms);
   }
   function onFrame(L, data) {
     let m; try { m = JSON.parse(data); } catch (e) { return; }
     if (m.$) {
-      if (m.$ === 'room') { if (Array.isArray(m.peers) && m.peers.length) peerHere(L); }
-      else if (m.$ === 'join') peerHere(L);
-      else if (m.$ === 'leave') {
-        L.peer = false; clearTimeout(L.leaveT);
-        // dá uns segundos para o amigo voltar (rede do telemóvel a mudar, ecrã bloqueado…)
-        L.leaveT = setTimeout(() => { if (S.link === L && !L.peer && !(L.dc && L.dc.readyState === 'open')) lost('Ligação terminada', 'O teu amigo saiu do jogo.'); }, 9000);
+      if (m.$ === 'room') {
+        if (Array.isArray(m.peers) && m.peers.length) peerHere(L);
+        else if (L.started) { L.peer = false; armLeave(L, 20000); }          // voltei e o amigo já não está: não fica preso para sempre
+        resendAll(L);
       }
+      else if (m.$ === 'join') { peerHere(L); resendAll(L); }
+      else if (m.$ === 'leave') { L.peer = false; if (L.started) G.toast('À espera do teu amigo…', 'info', 'A ligação dele caiu', 2000); armLeave(L, 20000); }
       return;
     }
     if (m.t === 'rtc') { onRtc(L, m); return; }
+    deliver(L, m);
+  }
+  // receção (relé ou direta): confirmações, ordem e repetidas
+  function deliver(L, m) {
+    L.lastRx = Date.now();
+    if (m.t === 'ack') { for (const q of [...L.unacked.keys()]) if (q <= m.q) L.unacked.delete(q); return; }
+    if (m.t === 'char' && m.v !== PROTO) return lost('Versões diferentes', 'O teu amigo tem outra versão do jogo. Fechem e voltem a abrir o jogo nos dois telemóveis para atualizar.');
+    if (m.q) {
+      if (m.q <= L.rq) { rawSend(L, JSON.stringify({ t:'ack', q:L.rq }), true); return; }   // repetida: a confirmação perdeu-se, confirma pelo relé
+      if (!L.rbuf.has(m.q)) L.rbuf.set(m.q, m);
+      while (L.rbuf.has(L.rq + 1)) { const x = L.rbuf.get(L.rq + 1); L.rbuf.delete(L.rq + 1); L.rq++; G.onNet(x); if (S.link !== L) return; }
+      rawSend(L, JSON.stringify({ t:'ack', q:L.rq }));
+      return;
+    }
     G.onNet(m);
+  }
+  function resendAll(L) { for (const u of L.unacked.values()) { u.at = Date.now(); rawSend(L, u.s, true); } }
+  // a cada 300 ms: reenvia o que não foi confirmado e vigia a ligação (os dois telemóveis trocam pings a cada 2 s)
+  function pump(L) {
+    if (L.closed || S.link !== L) { clearInterval(L.pumpT); return; }
+    const now = Date.now();
+    for (const u of L.unacked.values()) if (now - u.at > 700) { u.at = now; rawSend(L, u.s, true); }
+    if (!L.started) return;
+    const quiet = now - L.lastRx;
+    if (quiet > 4000 && L.useP2P) L.useP2P = false;                     // a ligação direta pode estar morta: volta ao relé
+    if (quiet > 8000 && relayOpen(L) && !L.kicked) { L.kicked = true; try { L.ws.close(4100, 'quiet'); } catch (e) {} }   // socket meio-aberto: religa
+    if (quiet < 2000) L.kicked = false;
+    if (quiet > 30000) lost('Ligação perdida', 'Deixámos de receber notícias do teu amigo.');
   }
   function peerHere(L) {
     L.peer = true; clearTimeout(L.leaveT);
-    sendWs(L, { t:'char', id:G.myChar ? G.myChar() : 'tudo' });               // o outro telemóvel fica a saber com que tenista jogo
+    sendWs(L, { t:'char', id:G.myChar ? G.myChar() : 'tudo', v:PROTO });     // o outro telemóvel fica a saber com que tenista jogo (e a versão)
     if (L.started) return;
     $('connSub').textContent = 'Os dois no campo · a afinar a ligação…';
     if (L.m.role === 'host') {
@@ -242,28 +305,37 @@ export function createOnline(G) {
       const t0 = Date.now();
       const go = () => {
         if (S.link !== L || L.started) return;
-        if ((L.dc && L.dc.readyState === 'open') || Date.now() - t0 > 2500) { L.started = true; clearTimeout(L.joinT); G.hostStart(L.m); }
+        if (L.peer && (dcOpen(L) || Date.now() - t0 > 2500)) { L.started = true; clearTimeout(L.joinT); G.hostStart(L.m); }
         else setTimeout(go, 100);
       };
       go();
     }
   }
   // chamada pelo jogo quando o convidado recebe 'start'
-  function guestStarted() { const L = S.link; if (L) { L.started = true; clearTimeout(L.joinT); } }
+  function guestStarted() { const L = S.link; if (L) { L.started = true; L.lastRx = Date.now(); clearTimeout(L.joinT); } }
 
   async function iceServers() {
     if (S.ice && Date.now() - S.iceAt < 30 * 60e3) return S.ice;
     try { const r = await api('/api/ice', { timeout:4000 }); if (Array.isArray(r.iceServers) && r.iceServers.length) { S.ice = r.iceServers; S.iceAt = Date.now(); return S.ice; } } catch (e) {}
     return [{ urls:'stun:stun.cloudflare.com:3478' }, { urls:'stun:stun.l.google.com:19302' }];
   }
-  const sendWs = (L, obj) => { try { if (L.ws && L.ws.readyState === 1) { L.ws.send(JSON.stringify(obj)); return true; } } catch (e) {} return false; };
-  async function makePc(L) {
-    if (L.pc || !('RTCPeerConnection' in window)) return L.pc;
-    const pc = L.pc = new RTCPeerConnection({ iceServers:await iceServers() });
-    pc.onicecandidate = e => { if (e.candidate) sendWs(L, { t:'rtc', k:'ice', c:e.candidate.toJSON ? e.candidate.toJSON() : e.candidate }); };
-    pc.onconnectionstatechange = () => { if (pc.connectionState === 'failed' || pc.connectionState === 'closed') dropP2P(L, pc); };
-    pc.ondatachannel = e => wireDc(L, e.channel);
-    return pc;
+  const sendWs = (L, obj) => { try { if (relayOpen(L)) { L.ws.send(JSON.stringify(obj)); return true; } } catch (e) {} return false; };
+  function makePc(L) {
+    if (!('RTCPeerConnection' in window)) return Promise.resolve(null);
+    if (L.pcP) return L.pcP;                                // uma só ligação direta por sala
+    L.pcP = (async () => {
+      const ice = await iceServers();
+      if (L.closed) return null;
+      const pc = L.pc = new RTCPeerConnection({ iceServers:ice });
+      pc.onicecandidate = e => { if (e.candidate) sendWs(L, { t:'rtc', k:'ice', c:e.candidate.toJSON ? e.candidate.toJSON() : e.candidate }); };
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'disconnected') L.useP2P = false;         // ligação direta em dúvida: o jogo segue pelo relé
+        if (pc.connectionState === 'failed' || pc.connectionState === 'closed') dropP2P(L, pc);
+      };
+      pc.ondatachannel = e => wireDc(L, e.channel);
+      return pc;
+    })();
+    return L.pcP;
   }
   async function startP2P(L) {
     try {
@@ -276,7 +348,7 @@ export function createOnline(G) {
   async function onRtc(L, m) {
     try {
       if (m.k === 'offer') {
-        const pc = await makePc(L); if (!pc) return;
+        const pc = await makePc(L); if (!pc || L.closed) return;
         await pc.setRemoteDescription(m.d);
         await pc.setLocalDescription(await pc.createAnswer());
         sendWs(L, { t:'rtc', k:'answer', d:pc.localDescription });
@@ -290,29 +362,38 @@ export function createOnline(G) {
     } catch (e) { console.warn('sinalização P2P', e); }
   }
   function wireDc(L, dc) {
+    if (L.closed) { try { dc.close(); } catch (e) {} return; }
     L.dc = dc;
-    dc.onopen = () => { if (S.link === L) L.p2pReady = true; };
-    dc.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch (x) { return; } if (m.t !== 'rtc') G.onNet(m); };
-    dc.onclose = () => { if (L.dc === dc) { L.dc = null; L.useP2P = false; } };
+    dc.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch (x) { return; } if (m.t !== 'rtc' && S.link === L) deliver(L, m); };
+    dc.onclose = () => { if (L.dc === dc) { L.dc = null; L.useP2P = false; if (!relayOpen(L)) retryRoom(L); } };
   }
-  function dropP2P(L, pc) { if (L.pc === pc) { try { pc.close(); } catch (e) {} L.pc = null; L.dc = null; L.useP2P = false; } }
-  // envio: direto quando já está aberto (só se troca entre pontos, para nunca trocar a ordem das mensagens a meio de um ponto)
+  function dropP2P(L, pc) { if (L.pc === pc) { try { pc.close(); } catch (e) {} L.pc = null; L.pcP = null; L.dc = null; L.useP2P = false; if (!relayOpen(L)) retryRoom(L); } }
+  // envio: direto quando já está aberto (só se troca entre pontos), senão pelo relé; preferRelay para reenvios
+  function rawSend(L, s, preferRelay) {
+    const open = dcOpen(L);
+    if (open && !L.useP2P && G.betweenPoints() && Date.now() - L.lastRx < 3000) L.useP2P = true;
+    if (!open) L.useP2P = false;
+    let sent = false;
+    if (L.useP2P) { try { L.dc.send(s); sent = true; } catch (e) { L.useP2P = false; } }
+    if ((!sent || preferRelay) && relayOpen(L)) { try { L.ws.send(s); sent = true; } catch (e) {} }
+    return sent;
+  }
   function send(obj) {
     const L = S.link; if (!L) return;
-    const dcOpen = L.dc && L.dc.readyState === 'open';
-    if (dcOpen && !L.useP2P && G.betweenPoints()) L.useP2P = true;
-    if (!dcOpen) L.useP2P = false;
-    const s = JSON.stringify(obj);
-    if (L.useP2P) { try { L.dc.send(s); return; } catch (e) { L.useP2P = false; } }
-    try { if (L.ws && L.ws.readyState === 1) L.ws.send(s); } catch (e) {}
+    if (CRIT.has(obj.t)) {
+      obj.q = ++L.seq; const s = JSON.stringify(obj);
+      L.unacked.set(obj.q, { s, at:Date.now() });
+      rawSend(L, s); return;
+    }
+    rawSend(L, JSON.stringify(obj));
   }
   const via = () => (S.link && S.link.useP2P ? 'direta' : 'servidor');
   function lost(title, text) { closeRoom(); G.netError(title, text); }
   function closeRoom(silent) {
     const L = S.link; if (!L) return;
     L.closed = true; S.link = null;
-    clearTimeout(L.leaveT); clearTimeout(L.joinT);
-    if (!silent) try { sendWs(L, { t:'bye' }); } catch (e) {}
+    clearTimeout(L.leaveT); clearTimeout(L.joinT); clearInterval(L.pumpT);
+    if (!silent) try { sendWs(L, { t:'bye' }); if (dcOpen(L)) L.dc.send(JSON.stringify({ t:'bye' })); } catch (e) {}
     try { L.dc && L.dc.close(); } catch (e) {}
     try { L.pc && L.pc.close(); } catch (e) {}
     try { L.ws && L.ws.close(1000); } catch (e) {}
@@ -322,16 +403,22 @@ export function createOnline(G) {
   // ---------------------------------------------------------------- resultados e estatísticas
   const pendingKey = 'pendingReports';
   function queueReport(r) { const q = G.store.get(pendingKey, []); q.push(r); G.store.set(pendingKey, q.slice(-40)); }
-  async function flushReports() {
-    if (!S.token || !navigator.onLine) return;
-    const q = G.store.get(pendingKey, []); if (!q.length) return;
-    const keep = [];
-    for (const r of q) {
-      try { await api('/api/matches', { method:'POST', body:r }); }
-      catch (e) { if (!(e.status >= 400 && e.status < 500)) keep.push(r); }   // erros de validação não voltam a tentar
-    }
-    G.store.set(pendingKey, keep);
-    if (q.length !== keep.length) loadMe().catch(() => {});
+  let flushing = null;
+  function flushReports() {
+    if (flushing) { flushing.then(() => flushReports()); return flushing; }    // uma de cada vez
+    flushing = (async () => {
+      if (!S.token || !navigator.onLine) return;
+      const q = G.store.get(pendingKey, []); if (!q.length) return;
+      const done = new Set();
+      for (const r of q) {
+        try { await api('/api/matches', { method:'POST', body:r }); done.add(JSON.stringify(r)); }
+        catch (e) { if (e.status >= 400 && e.status < 500) done.add(JSON.stringify(r)); }   // erros de validação não voltam a tentar
+      }
+      // relê a fila: o que entrou entretanto fica
+      G.store.set(pendingKey, G.store.get(pendingKey, []).filter(r => !done.has(JSON.stringify(r))));
+      if (done.size) loadMe().catch(() => {});
+    })().finally(() => { flushing = null; });
+    return flushing;
   }
   function reportMatch(r) { if (!S.token) return; queueReport(r); flushReports(); }
 
@@ -575,6 +662,11 @@ export function createOnline(G) {
   $('ivYes').addEventListener('click', () => replyInvite(true));
   $('bConnCancel').addEventListener('click', () => { closeRoom(); openLobby(); });
 
+  // link de amigo aberto com o jogo já aberto (só muda o #): trata-o na hora
+  addEventListener('hashchange', () => {
+    if (!takeFriendHash()) return;
+    if (S.token) usePendingFriend().then(openLobby); else openProfileSetup();
+  });
   // arranque: liga ao lobby em segundo plano para receber convites mesmo no menu
   function init() {
     const hadFriendLink = takeFriendHash();

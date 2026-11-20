@@ -41,12 +41,12 @@ export const STATS = ['spd', 'rch', 'pow', 'srv', 'ctl'];
 export const STAT_LABELS = { spd:'Velocidade', rch:'Alcance', pow:'Potência', srv:'Serviço', ctl:'Controlo' };
 const shape = (spd, rch, pow, srv, ctl) => ({ spd, rch, pow, srv, ctl });
 export const STYLES = {
-  tudo:      { label:'Tudo-o-Terreno', shape:shape(6, 6, 6, 6, 6) },
-  canhao:    { label:'Canhão',         shape:shape(4, 5, 7, 9, 5) },
-  muralha:   { label:'Muralha',        shape:shape(7, 9, 3, 4, 7) },
-  relampago: { label:'Relâmpago',      shape:shape(9, 6, 4, 5, 6) },
-  artista:   { label:'Artista',        shape:shape(5, 6, 4, 6, 9) },
-  martelo:   { label:'Martelo',        shape:shape(5, 5, 9, 6, 5) },
+  tudo:      { label:'Equilibrado',    shape:shape(6, 6, 6, 6, 6) },
+  canhao:    { label:'Grande serviço', shape:shape(4, 5, 7, 9, 5) },
+  muralha:   { label:'Defensor',       shape:shape(7, 9, 3, 4, 7) },
+  relampago: { label:'Velocidade',     shape:shape(9, 6, 4, 5, 6) },
+  artista:   { label:'Toque',          shape:shape(5, 6, 4, 6, 9) },
+  martelo:   { label:'Potência',       shape:shape(5, 5, 9, 6, 5) },
 };
 const STYLE_IDS = Object.keys(STYLES);
 const OPPOSITE = { canhao:'muralha', muralha:'canhao', martelo:'artista', artista:'martelo', relampago:'tudo', tudo:'relampago' };
@@ -199,50 +199,22 @@ function unlock(st, id, out, text) {
 
 /* ───────────── nomes inventados ───────────── */
 
-const NAMES = {
-  PT: [['Tiago', 'Hugo', 'Duarte', 'Rui', 'Nuno', 'Gonçalo', 'Vasco', 'Afonso', 'Rodrigo', 'Martim', 'Salvador', 'Lourenço', 'Bernardo', 'Simão', 'Henrique', 'Tomé'],
-       ['Valente', 'Macedo', 'Quintela', 'Barroso', 'Seabra', 'Brandão', 'Amaral', 'Tavares', 'Morais', 'Lobato', 'Pimentel', 'Carvalhal', 'Teles', 'Meireles', 'Sampaio', 'Vilela', 'Gouveia', 'Peixoto', 'Antunes', 'Bettencourt']],
-  BR: [['Caio', 'Murilo', 'Enzo', 'Davi', 'Heitor', 'Igor', 'Otávio', 'Renan', 'Breno', 'Vinícius'],
-       ['Albuquerque', 'Bezerra', 'Cavalcanti', 'Damasceno', 'Figueiredo', 'Guimarães', 'Lacerda', 'Nogueira', 'Prado', 'Siqueira']],
-  ES: [['Álvaro', 'Iker', 'Unai', 'Marcos', 'Sergio', 'Adrián', 'Jaime', 'Gonzalo', 'Rubén', 'Íñigo'],
-       ['Arteaga', 'Belmonte', 'Cifuentes', 'Galarza', 'Iturbe', 'Lasarte', 'Montoya', 'Olmedo', 'Quiroga', 'Sarmiento', 'Urrutia', 'Villaverde']],
-  FR: [['Théo', 'Mathis', 'Clément', 'Bastien', 'Maxime', 'Julien', 'Rémi', 'Baptiste', 'Loïc', 'Florian'],
-       ['Fournier', 'Garnier', 'Lemaire', 'Marchand', 'Perrin', 'Rousseau', 'Vasseur', 'Morel', 'Chevalier', 'Lefèvre', 'Delorme', 'Barbier']],
-  IT: [['Davide', 'Edoardo', 'Riccardo', 'Tommaso', 'Alessio', 'Gabriele', 'Niccolò', 'Pietro', 'Emanuele', 'Giacomo'],
-       ['Bellandi', 'Ferraris', 'Gallo', 'Lombardi', 'Marchetti', 'Rinaldi', 'Testa', 'Vitale', 'Zanetti', 'Benedetti', 'Donati', 'Ferrante']],
-  DE: [['Lukas', 'Jonas', 'Felix', 'Moritz', 'Leon', 'Finn', 'Niklas', 'Tobias', 'Malte', 'Henrik'],
-       ['Brandt', 'Hartmann', 'Keller', 'Lindner', 'Neumann', 'Richter', 'Schäfer', 'Vogel', 'Winkler', 'Zimmermann', 'Kessler', 'Lorenz']],
-  GB: [['Oliver', 'Harry', 'George', 'Charlie', 'Alfie', 'Freddie', 'Archie', 'Toby', 'Callum', 'Rory'],
-       ['Ashworth', 'Bramley', 'Carrington', 'Fairclough', 'Hargreaves', 'Pemberton', 'Whitaker', 'Thornton', 'Lockwood', 'Kingsley']],
-  US: [['Tyler', 'Cole', 'Brady', 'Hunter', 'Mason', 'Logan', 'Garrett', 'Chase', 'Wyatt', 'Dylan'],
-       ['Caldwell', 'Donovan', 'Fletcher', 'Merritt', 'Prescott', 'Whitfield', 'Bradford', 'Calloway', 'Harrington', 'Sutton']],
-  AR: [['Facundo', 'Joaquín', 'Valentín', 'Lautaro', 'Ignacio', 'Santino', 'Agustín', 'Bruno', 'Franco', 'Mateo'],
-       ['Aranguren', 'Beltrán', 'Cabrera', 'Domínguez', 'Echagüe', 'Ferreyra', 'Gorostiaga', 'Ledesma', 'Maldonado', 'Rivarola', 'Villalba']],
-  AU: [['Lachlan', 'Riley', 'Mitchell', 'Cooper', 'Hayden', 'Bailey', 'Flynn', 'Zac', 'Jarrah', 'Harvey'],
-       ['Brennan', 'Callaghan', 'Dempsey', 'Ferris', 'Gallagher', 'McAllister', 'Rourke', 'Sheridan', 'Whitlock', 'Halloran']],
-  JP: [['Haruto', 'Ren', 'Sora', 'Yuto', 'Kaito', 'Riku', 'Hiroki', 'Takumi', 'Kenta', 'Daiki'],
-       ['Arakawa', 'Fujimoto', 'Hayashi', 'Ishida', 'Kobayashi', 'Matsuda', 'Nakagawa', 'Okada', 'Takeda', 'Yamaguchi']],
-  SE: [['Elias', 'Isak', 'Viktor', 'Oskar', 'Linus', 'Albin', 'Hampus', 'Axel'],
-       ['Lindqvist', 'Bergström', 'Holmberg', 'Sandberg', 'Ekström', 'Nyberg', 'Åkesson', 'Lundgren']],
-  NL: [['Daan', 'Sem', 'Jesse', 'Thijs', 'Bram', 'Niels', 'Ruben', 'Stijn'],
-       ['Bakker', 'de Groot', 'Hendriks', 'Kuipers', 'Mulder', 'Smit', 'Visser', 'Vermeulen', 'Dekker']],
-  RS: [['Luka', 'Nikola', 'Stefan', 'Marko', 'Filip', 'Lazar', 'Vuk', 'Ognjen'],
-       ['Jovanović', 'Marković', 'Pavlović', 'Stamenković', 'Milosavljević', 'Radić', 'Vasić', 'Đurić']],
-  CZ: [['Jakub', 'Vojtěch', 'Ondřej', 'Matěj', 'Adam', 'Lukáš', 'Šimon'],
-       ['Horák', 'Kučera', 'Procházka', 'Svoboda', 'Šimek', 'Krejčí', 'Bartoš', 'Holub', 'Pokorný', 'Růžička']],
-  CL: [['Matías', 'Benjamín', 'Vicente', 'Cristóbal', 'Maximiliano'], ['Araya', 'Bustos', 'Cárdenas', 'Saavedra', 'Contreras', 'Riquelme']],
-  CA: [['Liam', 'Noah', 'Ethan', 'Xavier', 'Olivier'], ['Beaulieu', 'Gagnon', 'Lavoie', 'Ouellet', 'Pelletier', 'Tremblay']],
-  CH: [['Andri', 'Nico', 'Luca', 'Severin', 'Jonas'], ['Ammann', 'Brunner', 'Baumann', 'Steiner', 'Wyss']],
-  NO: [['Magnus', 'Sander', 'Eirik', 'Håkon'], ['Haugen', 'Solberg', 'Dahl', 'Berge']],
-};
-const COUNTRY_POOL = ['PT', 'PT', 'PT', 'BR', 'BR', 'ES', 'ES', 'FR', 'FR', 'IT', 'IT', 'DE', 'GB', 'US', 'AR', 'AU', 'JP', 'SE', 'NL', 'RS', 'CZ', 'CL', 'CA', 'CH', 'NO'];
+// nomes genéricos em inglês (inventados; evitam apelidos de tenistas conhecidos)
+const FIRST = ['Tom', 'Alex', 'Claire', 'Sam', 'Jack', 'Emma', 'Ryan', 'Kate', 'Ben', 'Lucy', 'Max', 'Zoe', 'Dan', 'Amy', 'Josh', 'Grace', 'Luke', 'Ella',
+  'Matt', 'Chloe', 'Nick', 'Holly', 'Chris', 'Megan', 'Adam', 'Lily', 'Jake', 'Ruby', 'Ollie', 'Anna', 'Sean', 'Beth', 'Owen', 'Jess', 'Will', 'Kim',
+  'Noah', 'Eve', 'Leo', 'Mia', 'Finn', 'Ivy', 'Rob', 'Tara', 'Joe', 'Nina', 'Ed', 'Sara', 'Kyle', 'Faye', 'Theo', 'Rose', 'Paul', 'Amber', 'Dean', 'Iris'];
+const LAST = ['Turner', 'Hayes', 'Walker', 'Carter', 'Bennett', 'Brooks', 'Collins', 'Foster', 'Griffin', 'Hughes', 'Jenkins', 'Lawson', 'Marsh', 'Nolan',
+  'Parker', 'Reed', 'Shaw', 'Tucker', 'Wells', 'Young', 'Barnes', 'Cole', 'Dixon', 'Ellis', 'Fisher', 'Grant', 'Hunt', 'Kent', 'Lane', 'Mills', 'Nash',
+  'Owens', 'Price', 'Ross', 'Stone', 'Todd', 'Vance', 'Ward', 'West', 'Wilde', 'Archer', 'Blake', 'Chase', 'Drake', 'Flynn', 'Gray', 'Holt', 'Knight',
+  'Lowe', 'Moss', 'North', 'Page', 'Quinn', 'Rhodes', 'Sharp', 'Tate', 'Vaughn', 'Wolfe', 'Bishop', 'Cross', 'Dunn', 'Frost', 'Hale', 'Kemp'];
+const COUNTRY_POOL = ['GB', 'GB', 'US', 'US', 'AU', 'CA', 'IE', 'NZ', 'ZA'];
 function genName(st, used) {
   for (let t = 0; t < 60; t++) {
-    const c = COUNTRY_POOL[rint(st, COUNTRY_POOL.length)], [F, L] = NAMES[c];
-    const n = F[rint(st, F.length)] + ' ' + L[rint(st, L.length)];
+    const c = COUNTRY_POOL[rint(st, COUNTRY_POOL.length)];
+    const n = FIRST[rint(st, FIRST.length)] + ' ' + LAST[rint(st, LAST.length)];
     if (!used.has(n)) { used.add(n); return { n, c }; }
   }
-  const n = 'Jogador ' + st.nextId; used.add(n); return { n, c:'PT' };
+  const n = 'Player ' + st.nextId; used.add(n); return { n, c:'GB' };
 }
 
 /* ───────────── o circuito de 199 adversários ───────────── */
