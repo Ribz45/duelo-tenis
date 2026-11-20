@@ -1,10 +1,10 @@
 import * as THREE from './vendor/three.module.min.js';
-import { Athlete, LOOK_PRESETS, TRACK_END } from './player3d.js?v=11';
-import { FX } from './fx.js?v=11';
-import { RealAthlete, loadAthleteAssets, warmKits } from './athlete-gltf.js?v=11';
-import { sfx, unlock } from './audio.js?v=11';
-import { createOnline } from './online.js?v=11';
-import { HL, HW, SVC, BR, serverFor, servePositions as rulePositions, judgeFirstBounce, isMatchOver, matchPointFor, outBy } from './rules.js?v=11';
+import { Athlete, LOOK_PRESETS, TRACK_END } from './player3d.js?v=12';
+import { FX } from './fx.js?v=12';
+import { RealAthlete, loadAthleteAssets, warmKits } from './athlete-gltf.js?v=12';
+import { sfx, unlock } from './audio.js?v=12';
+import { createOnline } from './online.js?v=12';
+import { HL, HW, SVC, BR, serverFor, servePositions as rulePositions, judgeFirstBounce, isMatchOver, matchPointFor, outBy } from './rules.js?v=12';
 
 // ---------------------------------------------------------------- constantes
 const DW = 5.485, NET_H = 0.914, GRAV = 9.81;
@@ -1440,7 +1440,13 @@ $('bInstall').addEventListener('click', async () => {
 refreshInstall();
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || /[?&]sw=1/.test(location.search))) {
   navigator.serviceWorker.register('sw.js').then(reg => {
-    const offer = () => { if (reg.waiting && navigator.serviceWorker.controller) { $('bUpdate').classList.remove('hidden'); $('bUpdate').onclick = () => { updateAsked = true; reg.waiting.postMessage('skipWaiting'); }; } };
+    const offer = () => {
+      if (!reg.waiting || !navigator.serviceWorker.controller) return;
+      const apply = () => { updateAsked = true; reg.waiting.postMessage('skipWaiting'); };
+      // os amigos têm de ter a mesma versão para jogarem online: ao abrir o jogo (ainda sem jogo a decorrer) atualiza logo
+      if (!inMatch() && performance.now() < 20000) return apply();
+      $('bUpdate').classList.remove('hidden'); $('bUpdate').onclick = apply;
+    };
     offer();
     reg.addEventListener('updatefound', () => { const w = reg.installing; if (w) w.addEventListener('statechange', () => { if (w.state === 'installed') offer(); }); });
   }).catch(() => {});

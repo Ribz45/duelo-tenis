@@ -2,7 +2,7 @@
 // Servidor próprio (Cloudflare Worker, ver server/ e docs/online-api.md).
 // Ligação durante o jogo: começa SEMPRE pelo relé do servidor (WebSocket, funciona em qualquer rede) e passa para
 // ligação direta (WebRTC) quando as duas redes o permitem — nunca fica sem ligação por causa do tipo de rede.
-import { API_BASE } from './config.js?v=11';
+import { API_BASE } from './config.js?v=12';
 
 export function createOnline(G) {
   const $ = id => document.getElementById(id);
