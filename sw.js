@@ -1,11 +1,11 @@
 // Service worker: guarda o jogo no telemóvel para abrir sem internet.
 // Ao publicar uma versão nova, sobe VERSION (e o ?v= dos módulos) para os telemóveis a descarregarem.
-const VERSION = 'duelo-v10';
+const VERSION = 'duelo-v11';
 const FILES = [
   './', 'index.html', 'manifest.webmanifest',
-  'game.js?v=10', 'player3d.js?v=10', 'fx.js?v=10', 'audio.js?v=10', 'rules.js?v=10',
-  'athlete-gltf.js?v=10',
-  'vendor/three.module.min.js', 'vendor/peerjs.min.js',
+  'game.js?v=11', 'player3d.js?v=11', 'fx.js?v=11', 'audio.js?v=11', 'rules.js?v=11',
+  'athlete-gltf.js?v=11', 'online.js?v=11', 'config.js?v=11',
+  'vendor/three.module.min.js',
   'vendor/jsm/loaders/GLTFLoader.js', 'vendor/jsm/utils/BufferGeometryUtils.js', 'vendor/jsm/utils/SkeletonUtils.js',
   'models/rb/rb_m.glb', 'models/rb/rb_m_body.jpg', 'models/rb/rb_m_head.jpg', 'models/rb/rb_m_body_n.jpg', 'models/rb/rb_m_head_n.jpg',
   'models/rb/rb_m_mask.png', 'models/rb/rb_m_headmask.png',
@@ -35,7 +35,7 @@ self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  if (url.origin !== location.origin) return;            // ligação online (PeerJS) vai sempre à rede
+  if (url.origin !== location.origin) return;            // servidor online (API e WebSockets) vai sempre à rede
   if (req.mode === 'navigate') {                          // abrir o jogo (com ou sem #convite) funciona offline
     e.respondWith(caches.match('index.html').then(r => r || fetch(req)));
     return;

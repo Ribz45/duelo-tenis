@@ -96,6 +96,17 @@
   .result-icon svg.i { width:64px; height:64px; stroke-width:1.6; }
   .bigscore { font-family:var(--cond); font-weight:800; font-size:76px; line-height:1; text-align:center; font-variant-numeric:tabular-nums; }
   .bigscore em { font-style:normal; color:var(--muted); margin:0 10px; }
+  .stats { background:rgba(11,31,58,.92); border:1px solid var(--line); border-radius:var(--r); padding:4px 14px 8px; }
+  .stats .hd, .stats .sr { display:grid; grid-template-columns:76px 1fr 76px; align-items:center; gap:6px; }
+  .stats .hd { padding:8px 0 6px; font-family:var(--cond); font-weight:700; font-size:14px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+  .stats .hd span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .stats .hd span:last-child, .stats .v.r { text-align:right; }
+  .stats .sr { padding:6px 0; border-top:1px solid var(--line); }
+  .stats .v { font-family:var(--cond); font-weight:700; font-size:19px; font-variant-numeric:tabular-nums; color:#d5deeb; }
+  .stats .v.best { color:var(--ball); }
+  .stats .lb { text-align:center; font-size:13px; line-height:1.25; color:var(--muted); font-weight:600; }
+  .stats .ft { text-align:center; padding:8px 0 2px; border-top:1px solid var(--line); font-size:13px; color:var(--muted); font-weight:600; }
+  .stats .ft b { color:var(--ink); }
+  #endScr .bigscore { font-size:62px; }
 
   /* marcador estilo TV */
   #hud { position:fixed; top:calc(var(--st) + 10px); left:calc(var(--sl) + 10px); z-index:5; pointer-events:none; transition:opacity .3s var(--ease); }
@@ -118,17 +129,31 @@
     background:rgba(7,21,43,.9); box-shadow:none; }
   #camBtn.on { background:var(--ball); color:var(--navy-900); }
 
-  /* faixa de resultado do ponto (estilo TV) */
-  #toast { position:fixed; left:0; top:38%; z-index:6; pointer-events:none; display:flex; flex-direction:column; gap:2px;
-    padding:10px 22px 10px calc(var(--sl) + 18px); background:rgba(7,21,43,.95); border-left:6px solid var(--ink); border-radius:0 10px 10px 0;
-    box-shadow:0 8px 24px rgba(0,0,0,.35); transform:translateX(-105%); transition:transform .32s var(--ease); max-width:86%; }
-  #toast.show { transform:none; }
-  #toast .b-title { font-family:var(--cond); font-weight:800; font-style:italic; font-size:38px; line-height:1; text-transform:uppercase; letter-spacing:.01em; }
-  #toast .b-sub { font-size:15px; color:#d5deeb; font-weight:600; }
+  /* resultado do ponto: etiqueta pequena no topo, ao centro (cor = bom/mau para mim) */
+  #toast { position:fixed; left:50%; top:max(calc(var(--st) + 128px), 23%); z-index:6; pointer-events:none;
+    display:grid; grid-template-columns:auto auto; column-gap:9px; row-gap:1px; align-items:center;
+    width:max-content; max-width:min(340px, calc(100% - 32px - var(--sl) - var(--sr))); padding:8px 16px 9px 13px; border-radius:14px;
+    background:rgba(7,21,43,.76); -webkit-backdrop-filter:blur(10px); backdrop-filter:blur(10px); border:1px solid rgba(255,255,255,.12);
+    box-shadow:0 6px 20px rgba(0,0,0,.25); color:var(--ink); opacity:0; transform:translate(-50%,-8px) scale(.96);
+    transition:opacity .16s ease-out, transform .28s var(--ease); }
+  #toast.show { opacity:1; transform:translate(-50%,0) scale(1); }
+  #toast::before { content:''; grid-row:1; width:8px; height:8px; border-radius:50%; background:currentColor; box-shadow:0 0 0 3px rgba(255,255,255,.06); }
+  #toast .b-title { grid-row:1; grid-column:2; font-family:var(--cond); font-weight:700; font-size:18px; line-height:1.15; text-transform:uppercase; letter-spacing:.06em; color:var(--ink); }
+  #toast .b-sub { grid-row:2; grid-column:2; font-size:13px; line-height:1.3; color:#c9d4e4; font-weight:600; }
   #toast.nosub .b-sub { display:none; }
-  #toast.good { border-left-color:var(--good); } #toast.good .b-title { color:var(--good); }
-  #toast.bad { border-left-color:var(--bad); } #toast.bad .b-title { color:var(--bad); }
-  #toast.gold { border-left-color:var(--ball); } #toast.gold .b-title { color:var(--ball); }
+  #toast.good { color:var(--good); } #toast.bad { color:var(--bad); } #toast.gold { color:var(--ball); } #toast.info { color:#9bb0cc; }
+  #toast.gold .b-title { color:var(--ball); }
+
+  /* contador de pancadas (aparece nas trocas longas) */
+  #rally { position:fixed; top:calc(var(--st) + 62px); right:calc(var(--sr) + 10px); z-index:5; pointer-events:none; display:flex; align-items:baseline; gap:6px;
+    padding:4px 11px; border-radius:999px; background:rgba(7,21,43,.74); -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px);
+    border:1px solid rgba(255,255,255,.12); font-family:var(--cond); opacity:0; transform:translateY(-6px); transition:opacity .2s, transform .25s var(--ease), border-color .3s; }
+  #rally.show { opacity:1; transform:none; }
+  #rally b { font-weight:800; font-size:20px; line-height:1.15; font-variant-numeric:tabular-nums; }
+  #rally span { font-size:12px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); }
+  #rally.hot { border-color:rgba(215,243,74,.7); } #rally.hot b { color:var(--ball); }
+  #rally.pulse { animation:rallyPulse .7s var(--ease); }
+  @keyframes rallyPulse { 0% { transform:scale(1); } 30% { transform:scale(1.18); box-shadow:0 0 0 6px rgba(215,243,74,.18); } 100% { transform:scale(1); box-shadow:0 0 0 0 rgba(215,243,74,0); } }
 
   #coach { position:fixed; left:calc(var(--sl) + 10px); right:calc(var(--sr) + 10px); top:calc(var(--st) + 122px); z-index:6; pointer-events:none; display:flex; justify-content:center;
     opacity:0; transform:translateY(-8px); transition:opacity .3s var(--ease), transform .3s var(--ease); }
@@ -144,11 +169,11 @@
   #coach #coachX svg.i { width:16px; height:16px; margin:0; }
 
   #pops { position:fixed; inset:0; pointer-events:none; z-index:6; overflow:hidden; }
-  .pop { position:absolute; left:0; top:0; font-family:var(--cond); font-weight:800; font-style:italic; font-size:22px; letter-spacing:.02em; text-transform:uppercase;
-    white-space:nowrap; text-shadow:0 2px 0 rgba(0,0,0,.5), 0 0 12px rgba(0,0,0,.35); will-change:transform,opacity; }
-  .pop.gold { color:var(--ball); font-size:26px; } .pop.good { color:var(--good); } .pop.warn { color:var(--warn); } .pop.bad { color:var(--bad); }
-  .pop.info { color:#fff; font-size:17px; font-style:normal; }
-  .pop small { display:block; text-align:center; font-size:13px; font-style:normal; font-weight:700; color:#fff; letter-spacing:.04em; }
+  .pop { position:absolute; left:0; top:0; font-family:var(--cond); font-weight:800; font-size:19px; letter-spacing:.08em; text-transform:uppercase;
+    white-space:nowrap; text-shadow:0 1px 2px rgba(0,0,0,.55), 0 0 10px rgba(0,0,0,.3); will-change:transform,opacity; }
+  .pop.gold { color:var(--ball); font-size:21px; } .pop.good { color:var(--good); } .pop.warn { color:var(--warn); } .pop.bad { color:var(--bad); }
+  .pop.info { color:#fff; font-size:15px; font-weight:700; }
+  .pop small { display:block; text-align:center; font-family:var(--body); font-size:11.5px; font-weight:700; color:rgba(255,255,255,.9); letter-spacing:.03em; text-transform:none; }
 
   /* etiqueta junto à mira */
   #aimLbl { position:fixed; left:0; top:0; z-index:5; pointer-events:none; opacity:0; transition:opacity .15s; white-space:nowrap;
@@ -159,6 +184,64 @@
   #hint { position:fixed; left:calc(var(--sl) + 12px); right:calc(var(--sr) + 12px); bottom:calc(var(--sb) + 12px); z-index:5; pointer-events:none; text-align:center; transition:opacity .3s; }
   #hint span { background:rgba(7,21,43,.82); padding:8px 14px; border-radius:20px; display:inline-block; font-size:14.5px; font-weight:600; }
   .fade-out { opacity:0 !important; }
+
+  /* ---------- online: perfil, lobby, convites ---------- */
+  .av { --c:#2c3e5c; width:40px; height:40px; flex:none; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    background:radial-gradient(circle at 30% 25%, rgba(255,255,255,.28), rgba(255,255,255,0) 60%), var(--c); color:#fff;
+    font-family:var(--cond); font-weight:800; font-size:20px; text-shadow:0 1px 2px rgba(0,0,0,.45); box-shadow:inset 0 0 0 2px rgba(255,255,255,.18); }
+  .av.lg { width:52px; height:52px; font-size:26px; } .av.xl { width:76px; height:76px; font-size:38px; }
+  .mi { display:flex; flex-direction:column; min-width:0; flex:1; gap:1px; }
+  .mi b { font-family:var(--cond); font-weight:700; font-size:22px; text-transform:uppercase; letter-spacing:.02em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .mi small { color:var(--muted); font-size:13.5px; }
+  .tagc { font-family:var(--cond); font-weight:700; letter-spacing:.14em; color:var(--ball); }
+  .me-card { display:flex; align-items:center; gap:12px; background:rgba(11,31,58,.92); border:1px solid var(--line); border-radius:var(--r); padding:12px; cursor:pointer; }
+  #menuMe { display:flex; align-items:center; gap:12px; text-transform:none; letter-spacing:0; justify-content:flex-start; padding:0 14px; min-height:60px; background:rgba(11,31,58,.92); border:1px solid var(--line); }
+  #menuMe .mi { text-align:left; } #menuMe .mi b { font-size:20px; } #menuMe svg.i { color:var(--muted); }
+  .badge { font-family:var(--cond); font-size:13px; font-weight:700; letter-spacing:.06em; background:var(--navy-900); color:var(--good); border-radius:999px; padding:3px 8px; }
+  .conn { display:flex; align-items:center; gap:6px; font-size:13px; font-weight:700; color:var(--muted); white-space:nowrap; }
+  .conn i { width:8px; height:8px; border-radius:50%; background:var(--warn); }
+  .conn.on i { background:var(--good); box-shadow:0 0 0 3px rgba(110,224,138,.18); } .conn.off i { background:var(--bad); }
+  .lob-h { display:flex; align-items:baseline; justify-content:space-between; gap:8px; margin:4px 2px -2px; }
+  .lob-h small { color:var(--muted); font-size:13px; }
+  .flist { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; }
+  .fr { display:flex; align-items:center; gap:10px; background:var(--navy-800); border:1px solid var(--line); border-radius:var(--r); padding:8px 8px 8px 10px; cursor:pointer; }
+  .fr.dim { opacity:.62; }
+  .fi { flex:1; min-width:0; display:flex; flex-direction:column; }
+  .fi b { font-family:var(--cond); font-weight:700; font-size:19px; text-transform:uppercase; letter-spacing:.02em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .fi small { color:var(--muted); font-size:13px; display:flex; align-items:center; gap:6px; }
+  .st { width:7px; height:7px; border-radius:50%; background:#5b6b82; flex:none; } .st.on { background:var(--good); } .st.busy { background:var(--warn); }
+  button.sm { width:auto; min-height:40px; padding:0 14px; font-size:16px; border-radius:10px; flex:none; }
+  button.sm.wait { background:var(--navy-950); color:var(--ball); }
+  .empty { text-align:center; color:var(--muted); font-size:14.5px; line-height:1.45; padding:14px 8px; border:1px dashed var(--navy-600); border-radius:var(--r); }
+  .looks { display:flex; gap:10px; justify-content:center; }
+  .lk { width:46px; height:46px; min-height:46px; padding:0; border-radius:50%; background:var(--c); box-shadow:inset 0 0 0 2px rgba(255,255,255,.2); }
+  .lk.on { box-shadow:0 0 0 3px var(--navy-900), 0 0 0 5px var(--ball); }
+  .codebox { font-family:var(--cond); font-weight:700; font-size:20px; letter-spacing:.12em; text-align:center; background:var(--navy-950); border:2px dashed var(--navy-600);
+    border-radius:var(--r); padding:12px; user-select:text; -webkit-user-select:text; word-break:break-all; }
+  .ph { display:flex; flex-direction:column; align-items:center; gap:6px; }
+  .h2h { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; background:rgba(11,31,58,.92); border:1px solid var(--line); border-radius:var(--r); padding:10px 14px; }
+  .h2h div { display:flex; flex-direction:column; align-items:center; } .h2h b { font-family:var(--cond); font-weight:800; font-size:44px; line-height:1; }
+  .h2h small { color:var(--muted); font-size:12.5px; max-width:110px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .h2h span { font-family:var(--cond); font-weight:700; font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); }
+  .kv { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-top:1px solid var(--line); font-size:14.5px; color:#d5deeb; }
+  .kv:first-child { border-top:0; } .kv b { font-family:var(--cond); font-weight:700; font-size:19px; color:var(--ink); font-variant-numeric:tabular-nums; }
+  .recent { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px; }
+  .recent li { display:grid; grid-template-columns:30px 1fr auto auto; gap:10px; align-items:center; background:var(--navy-800); border-radius:10px; padding:7px 10px; font-size:14.5px; }
+  .recent .res { font-family:var(--cond); font-weight:800; font-size:16px; width:26px; height:26px; border-radius:7px; display:flex; align-items:center; justify-content:center; }
+  .recent .res.w { background:rgba(110,224,138,.18); color:var(--good); } .recent .res.l { background:rgba(255,107,107,.16); color:var(--bad); }
+  .recent .ro { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .recent .rs { font-family:var(--cond); font-weight:700; font-size:17px; } .recent small { color:var(--muted); }
+  .spin { width:46px; height:46px; margin:0 auto; border-radius:50%; border:4px solid var(--navy-600); border-top-color:var(--ball); animation:spin .9s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  /* convite recebido: cartão por cima de tudo, em qualquer ecrã */
+  #inviteBar { position:fixed; left:calc(var(--sl) + 10px); right:calc(var(--sr) + 10px); bottom:calc(var(--sb) + 12px); z-index:40; display:flex; flex-direction:column; gap:10px;
+    max-width:420px; margin:0 auto; padding:12px; border-radius:16px; background:rgba(11,31,58,.97); border:1px solid rgba(215,243,74,.45);
+    box-shadow:0 14px 40px rgba(0,0,0,.5); opacity:0; transform:translateY(20px); transition:opacity .2s, transform .3s var(--ease); }
+  #inviteBar.show { opacity:1; transform:none; }
+  #inviteBar .iv-r { display:flex; align-items:center; gap:12px; }
+  #inviteBar .iv-t { font-family:var(--cond); font-weight:800; font-size:21px; text-transform:uppercase; letter-spacing:.02em; }
+  #inviteBar .iv-s { color:var(--muted); font-size:13.5px; }
+  #inviteBar .iv-time { height:3px; border-radius:2px; background:var(--navy-700); overflow:hidden; }
+  #inviteBar .iv-time i { display:block; height:100%; background:var(--ball); transform-origin:left; transition:transform .25s linear; }
   /* ecrãs mais baixos (16:9): painéis mais compactos */
   /* telemóveis comuns (≈800 px de altura): o menu cabe sem deslizar */
   @media (max-height:900px) {
@@ -187,6 +270,8 @@
   <symbol id="i-install" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19h14"/></symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"/></symbol>
   <symbol id="i-cam" viewBox="0 0 24 24"><path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13.5" r="3.5"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></symbol>
   <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></symbol>
 </svg>
 <canvas id="c"></canvas>
@@ -202,6 +287,12 @@
 <button id="quit" class="hidden" aria-label="Sair do jogo"><svg class="i"><use href="#i-x"/></svg></button>
 <div id="toast"><div class="b-title"></div><div class="b-sub"></div></div>
 <div id="coach"><div class="cc"><span class="ct"></span><button id="coachOff" type="button">Já sei jogar · desligar dicas</button><button id="coachX" type="button" aria-label="Fechar dica"><svg class="i"><use href="#i-x"/></svg></button></div></div>
+<div id="rally"><b>0</b><span>pancadas</span></div>
+<div id="inviteBar" class="hidden" role="alertdialog" aria-label="Desafio recebido">
+  <div class="iv-r"><span class="av"></span><span class="mi"><span class="iv-t"></span><span class="iv-s"></span></span></div>
+  <div class="iv-time"><i></i></div>
+  <div class="row2"><button id="ivNo">Agora não</button><button id="ivYes" class="primary">Aceitar</button></div>
+</div>
 <div id="pops"></div>
 <div id="aimLbl"></div>
 <div id="hint" class="hidden"><span></span></div>
@@ -211,8 +302,9 @@
   <div class="card">
     <h1 class="wordmark">Duelo<span>Ténis</span></h1>
     <p class="tagline">Ténis 3D para jogares contra os teus amigos</p>
-    <input id="nameIn" maxlength="12" placeholder="O teu nome" autocomplete="off" aria-label="O teu nome">
-    <button id="bFriend" class="primary"><svg class="i"><use href="#i-vs"/></svg>Desafiar um amigo</button>
+    <button id="menuMe" class="hidden" type="button" aria-label="O meu perfil"></button>
+    <input id="nameIn" maxlength="16" placeholder="O teu nome" autocomplete="off" aria-label="O teu nome">
+    <button id="bFriend" class="primary"><svg class="i"><use href="#i-vs"/></svg>Jogar com amigos<span class="badge hidden" id="friendsOnline"></span></button>
     <div class="row2">
       <button id="bQuick"><svg class="i"><use href="#i-cpu"/></svg>Jogo rápido</button>
       <button id="bTour"><svg class="i"><use href="#i-trophy"/></svg>Torneio</button>
@@ -241,32 +333,77 @@
   </div>
 </div>
 
-<!-- Desafiar amigo (anfitrião) -->
-<div id="hostScr" class="screen off">
+<!-- Criar perfil -->
+<div id="profScr" class="screen off">
   <div class="card">
-    <h2>Desafiar um amigo</h2>
-    <p class="muted">Envia este link. O jogo começa quando o teu amigo o abrir.</p>
-    <div class="linkbox" id="linkBox">A criar sala…</div>
-    <div class="row2"><button id="bShare" class="primary"><svg class="i"><use href="#i-share"/></svg>Partilhar</button><a id="bWa" class="btn" target="_blank" rel="noopener"><svg class="i"><use href="#i-chat"/></svg>WhatsApp</a></div>
-    <button id="bCopy"><svg class="i"><use href="#i-copy"/></svg>Copiar link</button>
-    <p class="muted" id="hostStatus">À espera do teu amigo…</p>
-    <button class="ghost" data-back>Cancelar</button>
+    <h2>O teu perfil</h2>
+    <p class="muted">Cria o perfil uma vez: adicionas os teus amigos, vês quem está online e desafias diretamente no jogo, sem links.</p>
+    <input id="profName" maxlength="16" placeholder="O teu nome" autocomplete="off" aria-label="O teu nome">
+    <div class="field-l" style="text-align:center">Equipamento</div>
+    <div class="looks" id="profLooks"></div>
+    <button id="bProfCreate" class="primary"><svg class="i"><use href="#i-user"/></svg>Criar perfil</button>
+    <p class="muted" id="profMsg"></p>
+    <button class="ghost" id="bProfLogin">Já tenho conta · entrar com código</button>
+    <button class="ghost" data-back>Voltar</button>
   </div>
 </div>
 
-<!-- Aceitar desafio (convidado) -->
-<div id="joinScr" class="screen off">
+<!-- Entrar com o código da conta -->
+<div id="loginScr" class="screen off">
   <div class="card">
-    <h1 class="wordmark">Duelo<span>Ténis</span></h1>
-    <h2>Foste desafiado</h2>
-    <input id="joinName" maxlength="12" placeholder="O teu nome" autocomplete="off" aria-label="O teu nome">
-    <button id="bJoin" class="primary"><svg class="i"><use href="#i-vs"/></svg>Aceitar duelo</button>
-    <p class="muted" id="joinStatus"></p>
-    <div class="panel howto">
-      <div><svg class="i"><use href="#i-tap"/></svg><span><b>Toca</b> no campo para correr</span></div>
-      <div><svg class="i"><use href="#i-drag"/></svg><span><b>Desliza</b> (swipe) para bater quando a bola chegar</span></div>
+    <h2>Entrar na conta</h2>
+    <p class="muted">No outro telemóvel: Perfil → Código da conta. Escreve-o aqui.</p>
+    <input id="loginCode" maxlength="40" placeholder="XXXX XXXX XXXX …" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Código da conta">
+    <button id="bLogin" class="primary">Entrar</button>
+    <p class="muted" id="loginMsg"></p>
+    <button class="ghost" id="bLoginBack">Voltar</button>
+  </div>
+</div>
+
+<!-- Lobby: amigos online, convites -->
+<div id="lobbyScr" class="screen off">
+  <div class="card">
+    <div class="lob-h"><h2 style="text-align:left">Lobby</h2><span class="conn" id="lobbyConn"><i></i><span>A ligar…</span></span></div>
+    <div class="me-card" id="lobbyMe"></div>
+    <div class="panel hidden" id="lobbyReq"><div class="field-l">Pedidos de amizade</div><ul class="flist" id="lobbyReqList"></ul></div>
+    <div class="lob-h"><span class="field-l">Amigos</span><small id="lobbyCount"></small></div>
+    <ul class="flist" id="lobbyFriends"></ul>
+    <p class="empty" id="lobbyEmpty">Ainda não tens amigos aqui. Envia o teu link de amigo (só é preciso uma vez) ou escreve o código de amigo de alguém.</p>
+    <div class="panel">
+      <div class="field-l">Adicionar amigo</div>
+      <div class="row2"><input id="addTag" maxlength="6" placeholder="Código (ex.: K7P2Q)" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Código de amigo"><button id="bAddTag" style="flex:0 0 auto;width:auto">Adicionar</button></div>
+      <button id="bShareLink"><svg class="i"><use href="#i-share"/></svg>Enviar o meu link de amigo</button>
+      <p class="muted" style="font-size:13px">O teu código de amigo: <span class="tagc" id="myTag"></span></p>
     </div>
-    <button class="ghost" data-back>Ir para o menu</button>
+    <button class="ghost" data-back>Menu</button>
+  </div>
+</div>
+
+<!-- Perfil e estatísticas (meu ou de um amigo) -->
+<div id="statsScr" class="screen off">
+  <div class="card">
+    <div id="statsHead"></div>
+    <div class="panel" id="statsBody"></div>
+    <div id="statsRecent"></div>
+    <div class="panel" id="statsAccount">
+      <div class="field-l">Código da conta</div>
+      <p class="muted" style="font-size:13.5px;text-align:left">Serve para entrares noutro telemóvel. Não o partilhes: quem o tiver entra na tua conta.</p>
+      <div class="codebox" id="acctCode">•••• •••• •••• ••••</div>
+      <div class="row2"><button id="bAcctShow">Mostrar</button><button id="bEditName">Mudar nome</button></div>
+      <button class="ghost" id="bSignOut">Sair desta conta</button>
+    </div>
+    <button class="ghost" id="bRemoveFriend">Remover amigo</button>
+    <button class="ghost" id="bStatsBack">Voltar</button>
+  </div>
+</div>
+
+<!-- A ligar ao adversário -->
+<div id="connScr" class="screen off">
+  <div class="card">
+    <div class="spin"></div>
+    <h2 id="connTitle">A ligar…</h2>
+    <p class="muted" id="connSub"></p>
+    <button class="ghost" id="bConnCancel">Cancelar</button>
   </div>
 </div>
 
@@ -288,6 +425,7 @@
     <h2 id="endTitle">Ganhaste</h2>
     <div class="bigscore" id="endScore">10<em>–</em>8</div>
     <p class="muted" id="endSub"></p>
+    <div class="stats" id="endStats"></div>
     <button id="bEndMain" class="primary">Revanche</button>
     <button id="bEndMenu">Menu</button>
   </div>
@@ -303,7 +441,6 @@
 </div>
 
 <script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
-<script src="vendor/peerjs.min.js"></script>
-<script type="module" src="game.js?v=10"></script>
+<script type="module" src="game.js?v=11"></script>
 </body>
 </html>

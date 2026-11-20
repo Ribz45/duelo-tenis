@@ -1,9 +1,10 @@
 import * as THREE from './vendor/three.module.min.js';
-import { Athlete, LOOK_PRESETS, TRACK_END } from './player3d.js?v=10';
-import { FX } from './fx.js?v=10';
-import { RealAthlete, loadAthleteAssets, warmKits } from './athlete-gltf.js?v=10';
-import { sfx, unlock } from './audio.js?v=10';
-import { HL, HW, SVC, BR, serverFor, servePositions as rulePositions, judgeFirstBounce, isMatchOver, matchPointFor, outBy } from './rules.js?v=10';
+import { Athlete, LOOK_PRESETS, TRACK_END } from './player3d.js?v=11';
+import { FX } from './fx.js?v=11';
+import { RealAthlete, loadAthleteAssets, warmKits } from './athlete-gltf.js?v=11';
+import { sfx, unlock } from './audio.js?v=11';
+import { createOnline } from './online.js?v=11';
+import { HL, HW, SVC, BR, serverFor, servePositions as rulePositions, judgeFirstBounce, isMatchOver, matchPointFor, outBy } from './rules.js?v=11';
 
 // ---------------------------------------------------------------- constantes
 const DW = 5.485, NET_H = 0.914, GRAV = 9.81;
@@ -15,9 +16,9 @@ const SURFACES = {
   grass: { label:'Relva', court:0x5a9a3a, outer:0x4b8731, e:0.6, f:0.86 },
 };
 const LEVELS = [
-  { label:'Fácil',   q:0.45, speed:5.6, react:0.3, pow:[0.2, 0.45], width:1.8, depth:[6.8, 9.2],  svSig:0.13, svPow:0.45, miss:0.1 },
-  { label:'Médio',   q:0.66, speed:6.6, react:0.17, pow:[0.35, 0.7], width:2.6, depth:[7.5, 10.1], svSig:0.08, svPow:0.7,  miss:0.07 },
-  { label:'Difícil', q:0.84, speed:7.4, react:0.1, pow:[0.55, 0.9], width:3.1, depth:[8.2, 10.5], svSig:0.05, svPow:0.9,  miss:0.035 },
+  { label:'Fácil',   q:0.45, speed:5.6, react:0.3, pow:[0.2, 0.45], width:1.8, depth:[6.8, 9.2],  svSig:0.13, svPow:0.45, miss:0.1, svRead:0.05, ace:0.45 },
+  { label:'Médio',   q:0.66, speed:6.6, react:0.17, pow:[0.35, 0.7], width:2.6, depth:[7.5, 10.1], svSig:0.08, svPow:0.7,  miss:0.07, svRead:0.035, ace:0.3 },
+  { label:'Difícil', q:0.84, speed:7.4, react:0.1, pow:[0.55, 0.9], width:3.1, depth:[8.2, 10.5], svSig:0.05, svPow:0.9,  miss:0.035, svRead:0.02, ace:0.16 },
 ];
 const HELPS = {
   total:  { label:'Total',  green:0.09, auto:true,  recover:true,  drift:1, magnet:3, fine:1.6, preview:true,  marker:true,  err:0.65, reach:1.9 },
@@ -304,7 +305,7 @@ const authority = () => M.mode !== 'online' || (B.hitter >= 0 && other(B.hitter)
 const H = () => HELPS[M.help] || HELPS.normal;
 const errMul = idx => (M.mode === 'online' || idx !== M.me) ? 1 : H().err;
 const greenWin = () => (M.mode === 'online' ? HELPS.normal.green : H().green);
-const reachOf = pl => (pl.isCPU ? 1.8 : (pl.remote || M.mode === 'online') ? 1.75 : H().reach) + (B.isServe ? 0.25 : 0);   // na resposta ao serviço estica-se mais
+const reachOf = pl => (pl.isCPU ? 1.8 : (pl.remote || M.mode === 'online') ? 1.75 : H().reach) + (B.isServe ? 0.25 - (B.svPress || 0) * 0.12 : 0);   // resposta: estica-se mais, menos contra um serviço forte e bem colocado
 // dentro da janela ideal = perfeito (pancada vencedora possível); logo a seguir "Bom"; depois cai depressa
 function timingQ(err, g) { const a = Math.abs(err); return a <= g ? 1 : clamp(0.88 - (a - g) / 0.22, 0, 0.88); }
 function timingLabel(q, err) { if (q >= 1) return 'Perfeito'; if (q >= 0.6) return 'Bom'; if (q >= 0.3) return err < 0 ? 'Cedo' : 'Tarde'; return err < 0 ? 'Muito cedo' : 'Muito tarde'; }
@@ -329,7 +330,11 @@ function predictBall(maxT = 3) {
   let g = B.g, b = B.bounces, sp = B.spin;
   for (let t = dt; t <= maxT; t += dt) {
     v.y -= g * dt; p.addScaledVector(v, dt);
-    if (p.y < BR && v.y < 0) { p.y = BR; sp = bounceVel(v, sp, S); g = GRAV; b++; if (b > 2) break; }
+    if (p.y < BR && v.y < 0) {
+      const tb = Math.min(dt, (BR - p.y) / -v.y); p.x -= v.x * tb; p.z -= v.z * tb; p.y = BR;
+      sp = bounceVel(v, sp, S); g = GRAV; b++; if (b > 2) break;
+      p.x += v.x * tb; p.z += v.z * tb; p.y += v.y * tb;
+    }
     out.push({ x:p.x, y:p.y, z:p.z, vz:v.z, t, b });
   }
   return out;
@@ -360,6 +365,9 @@ function launch(idx, from, v, g, isServe, fromNet, q = 0.7, spin = 0.3) {
   if (from.y > 1.9 && !isServe && speed > 20) fx.shake(0.06, 0.25);      // smash
   if (isServe) sfx.hush(true);
   M.pointHits = (M.pointHits || 0) + 1;
+  if (isServe) B.svKmh = Math.round(v.length() * 3.6);
+  if (isServe && M.stats) M.stats[idx].fastestServe = Math.max(M.stats[idx].fastestServe, B.svKmh);
+  updateRally();
   P[other(idx)].splitAt = simTime;
   if (idx === M.me) {
     buzz(q >= 1 ? 30 : 14);
@@ -368,6 +376,10 @@ function launch(idx, from, v, g, isServe, fromNet, q = 0.7, spin = 0.3) {
   if (M.mode === 'online' && idx === M.me && !fromNet) netSend({ t:'hit', p:[from.x, from.y, from.z], v:[v.x, v.y, v.z], g, s:isServe ? 1 : 0, sp:spin });
   landRing.material.opacity = 0; shotDisc.material.opacity = 0;
   const fb = predictBall(3).find(s => s.b === 1);
+  // pressão do 1.º serviço (0–1): rápido, perto dos cantos e fundo → mais difícil de ler e de alcançar para quem responde.
+  // Calculada só a partir da bola, para dar o mesmo valor nos dois telemóveis no modo online.
+  const place = isServe && fb ? clamp(Math.abs(fb.x - M.boxSign * HW / 2) / (HW / 2) * 0.75 + clamp(Math.abs(fb.z) / SVC, 0, 1) * 0.35, 0, 1) : 0;
+  B.svPress = isServe && M.serveNum === 1 ? clamp((Math.hypot(v.x, v.z) - 29) / 12, 0, 1) * (0.2 + 0.8 * place) : 0;
   if (idx !== M.me && H().marker) {
     if (fb && Math.sign(fb.z) === sideOf(M.me)) { landRing.position.set(fb.x, 0.006, fb.z); landRing.material.opacity = 0.55; LAND.t0 = simTime; LAND.t1 = simTime + fb.t; }
   }
@@ -377,7 +389,7 @@ function launch(idx, from, v, g, isServe, fromNet, q = 0.7, spin = 0.3) {
 
 // pancada: alvo escolhido (tx,tz), potência e qualidade do tempo → trajetória com erro
 function shotSpec(type, power, q, volley) {
-  if (type === 'lob') return { speedH:7.5 + power * 2.8, g:GRAV + 0.6, margin:1.8, spin:0.2 };
+  if (type === 'lob') return { speedH:14.5 + power * 3, g:GRAV + 3.2, margin:1.3, spin:0.2 };   // balão tenso: ápice ≈3,8–4,5 m, ainda alto demais para quem está na rede
   if (type === 'drop') return { g:GRAV - 1.2, apex:1.75 + power * 0.35, spin:-0.9 };
   // ritmo do Tennis Arena: bolas rápidas e tensas (≈0,65–0,9 s até ao ressalto), o topspin faz a bola cair dentro do campo
   const boost = q >= 1 ? 1 + 0.22 * power : 1;
@@ -431,7 +443,7 @@ function startToss(idx, cpuAim) {
   if (M.phase !== 'preserve' || M.server !== idx || M.toss) return;
   M.toss = { idx, t0:simTime, aim:cpuAim || null, releaseAt:null };
   B.held = false;
-  if (cpuAim) M.toss.releaseAt = T_IDEAL + gauss() * LEVELS[M.level].svSig;
+  if (cpuAim) M.toss.releaseAt = clamp(T_IDEAL + gauss() * LEVELS[M.level].svSig, 0.32, T_FAIL - 0.1);
   if (M.mode === 'online' && idx === M.me) netSend({ t:'toss' });
 }
 function failToss() {
@@ -442,7 +454,12 @@ function failToss() {
 function releaseServe(idx, aim) {
   if (!M.toss || M.toss.idx !== idx || M.phase !== 'preserve') return;
   const tt = simTime - M.toss.t0;
-  if (tt < 0.28) { M.toss = null; B.held = true; if (idx === M.me) toast('Cedo demais', 'info', 'Toca para lançar e desliza quando a bola estiver no ponto mais alto', 1300); return; }
+  if (tt < 0.28) {
+    M.toss = null; B.held = true;
+    if (idx === M.me) toast('Cedo demais', 'info', 'Toca para lançar e desliza quando a bola estiver no ponto mais alto', 1300);
+    else if (P[idx].isCPU) after(0.8, cpuServe);              // o CPU volta a lançar (antes ficava parado para sempre)
+    return;
+  }
   const err = tt - T_IDEAL, q = timingQ(err, greenWin());
   const pl = P[idx], s = pl.side, r = -s, second = M.serveNum === 2;
   const from = new V3(pl.pos.x - s * 0.1, tossY(tt), pl.pos.z - s * 0.35);
@@ -450,7 +467,7 @@ function releaseServe(idx, aim) {
   const tx = aim.tx + gauss() * sig;
   const tz = aim.tz + r * (gauss() * sig + (1 - q) * 0.3 * (Math.random() - 0.3));
   const lvl = pl.isCPU ? 0.72 + 0.3 * LEVELS[M.level].svPow : 1;
-  const speed = (second ? 20 + q * 6 : 23 + q * 12 + aim.ad * 4) * lvl;
+  const speed = (second ? 20 + q * 6 : 23 + q * 12 + aim.ad * 4 + (q >= 1 ? 4 : 0)) * lvl;
   const g = second ? GRAV + 7 : GRAV + 2;
   const margin = second ? 0.45 : 0.1 + (1 - q) * 0.15 - Math.random() * (1 - q) * 0.35;
   const v = makeShot(from, tx, tz, speed, g, margin);
@@ -482,6 +499,10 @@ function stepBall(dt) {
   }
   if (B.p.y < BR && B.v.y < 0) {
     const S = SURFACES[M.surface];
+    // o ressalto aconteceu a meio do passo: recua até ao ponto exato onde a bola tocou no chão (senão a 140 km/h
+    // a marca e a decisão dentro/fora ficavam até 30 cm à frente do sítio real)
+    const tb = clamp((BR - B.p.y) / -B.v.y, 0, dt);
+    B.p.x -= B.v.x * tb; B.p.z -= B.v.z * tb;
     B.p.y = BR; B.spin = bounceVel(B.v, B.spin, S); B.g = GRAV;
     if (Math.abs(B.v.y) < 0.5) B.v.y = 0;
     B.bounces++;
@@ -494,6 +515,7 @@ function stepBall(dt) {
       landRing.material.opacity = 0;
     }
     if (!B.netHit && M.phase === 'rally' && authority()) judgeBounce();
+    B.p.x += B.v.x * tb; B.p.z += B.v.z * tb; B.p.y += Math.max(0, B.v.y) * tb;   // completa o passo já depois do ressalto
   }
   if (B.v.y === 0 && B.p.y <= BR + 1e-3) B.v.multiplyScalar(0.98);
 }
@@ -523,7 +545,7 @@ function resetForServe() {
   placePlayer(sp.rc, sp.rcPos.x, sp.rcPos.z);
   B.live = false; B.held = true; B.hitter = -1; B.bounces = 0; B.isServe = false; B.netHit = false;
   M.toss = null; M.lastWinner = -1;
-  landRing.material.opacity = 0; M.pointHits = 0; sfx.hush(false);
+  landRing.material.opacity = 0; M.pointHits = 0; sfx.hush(false); updateRally();
   P.forEach(p => { p.act = null; p.incoming = null; });
   M.phase = 'preserve';
   if (P[M.server].isCPU) after(1.3 + Math.random() * 0.7, cpuServe);
@@ -542,6 +564,7 @@ function applyPoint(w, reason) {
   if (myShotErr && reason === 'Fora!') countTip('out', 2, 'Bolas fortes e perto das linhas saem mais. Faz um swipe mais curto ou mais a direito para o meio do campo.');
   if (myShotErr && reason === 'Rede!') countTip('net', 1, 'Bateste na rede. Faz o swipe com a bola à tua frente: cedo ou tarde demais a bola sai baixa.');
   if (reason === 'Ponto!' && w !== M.me && B.hitter !== M.me && !P[M.me].swipe) countTip('move', 2, 'Toca no sítio para onde queres correr. A mancha amarela mostra onde a bola vai bater.');
+  countPointStats(w, reason);
   M.phase = 'pointover'; M.score[w]++; M.pointsPlayed++;
   M.lastWinner = w; M.pointEndT = simTime; M.toss = null;
   landRing.material.opacity = 0;
@@ -550,6 +573,8 @@ function applyPoint(w, reason) {
   let sub = mine ? explainWin(reason) : explainLoss(reason);
   const over = isMatchOver(M.score);
   if (!over && matchPointFor(M.score) !== -1) sub += ' · Match point';
+  if ((M.pointHits || 0) >= 20) sub = M.pointHits + ' pancadas · ' + sub;
+  if (reason === 'Ás!' && B.svKmh) sub += ' · ' + B.svKmh + ' km/h';
   toast(reason, mine ? 'good' : 'bad', sub, 1300);
   sfx.hush(false);
   const big = reason === 'Ás!' || reason === 'Vencedor!';
@@ -559,6 +584,31 @@ function applyPoint(w, reason) {
   updateHUD();
   if (!over) after(1.0, walkToPositions);
   after(2.3, () => { if (over) finishMatch(); else preparePoint(); });
+}
+// estatísticas de cada jogador no jogo (mostradas no fim e guardadas no perfil)
+const newStats = () => ({ pointsWon:0, pointsPlayed:0, aces:0, doubleFaults:0, firstIn:0, firstTotal:0, firstWon:0, secondWon:0, secondTotal:0,
+  winners:0, errors:0, fastestServe:0, longestRally:0 });
+function countPointStats(w, reason) {
+  const S = M.stats; if (!S) return;
+  const sv = M.server, l = other(w), rally = M.pointHits || 0;
+  S[w].pointsWon++; S[0].pointsPlayed++; S[1].pointsPlayed++;
+  S[sv].firstTotal++;
+  if (M.serveNum === 1) { S[sv].firstIn++; if (w === sv) S[sv].firstWon++; }
+  else { S[sv].secondTotal++; if (w === sv) S[sv].secondWon++; }
+  if (reason === 'Dupla falta') S[sv].doubleFaults++;
+  if (reason === 'Ás!') S[w].aces++;
+  if (reason === 'Ponto!' && B.hitter === w && !B.isServe) S[w].winners++;
+  if ((reason === 'Fora!' || reason === 'Rede!') && B.hitter === l) S[l].errors++;
+  for (const st of S) st.longestRally = Math.max(st.longestRally, rally);
+}
+// contador de pancadas: aparece a partir das 10, fica dourado nas 20 e celebra cada dezena
+function updateRally() {
+  const el = $('rally'), n = M.pointHits || 0, live = inMatch() && n >= 10;
+  el.classList.toggle('show', live);
+  if (!live) { el.classList.remove('hot'); return; }
+  el.firstElementChild.textContent = n;
+  el.classList.toggle('hot', n >= 20);
+  if (n >= 20 && n % 10 === 0) { el.classList.remove('pulse'); void el.offsetWidth; el.classList.add('pulse'); sfx.ooh(0.4); }
 }
 // explicar porque o ponto acabou (do ponto de vista do jogador local)
 function explainWin(reason) {
@@ -705,7 +755,7 @@ function humanAuto(pl) {
     const d = Math.hypot(p.x - pl.pos.x, p.z - pl.pos.z);
     if (rem < 0.55 && d < h.fine) { pl.target = { x:p.x, z:p.z }; pl.walk = false; return; }   // reta final: afina sozinho
     if (!manual) {
-      if (simTime - ap.t0 < 0.1) return;                                         // tempo de reação
+      if (simTime - ap.t0 < 0.1 + (B.isServe ? (B.svPress || 0) * 0.16 : 0)) return;   // tempo de reação (mais longo contra um serviço forte)
       const k = h.auto ? 1 : h.drift;
       pl.target = { x:ap.start.x + (p.x - ap.start.x) * k, z:ap.start.z + (p.z - ap.start.z) * k }; pl.walk = false;
     }
@@ -722,6 +772,7 @@ function magnetTap(pl, x, z) {
 }
 
 // ---------------------------------------------------------------- CPU
+const cpuSpeed = L => B.isServe && M.phase === 'rally' ? Math.max(L.speed, 6.3) : L.speed;
 function cpuServe() {
   const pl = P[M.server]; if (!pl.isCPU || M.phase !== 'preserve') return;
   startToss(pl.idx, serveTarget(pl.idx, rand(-1, 1), rand(0.45, 1)));
@@ -732,12 +783,12 @@ function cpuUpdate(pl) {
   if (M.phase === 'rally' && B.live && !B.netHit && B.hitter >= 0 && B.hitter !== pl.idx) {
     if (ai.planId !== B.hitId) {
       const k = 1 - L.q, misread = Math.random() < 0.25 * k;
-      ai.planId = B.hitId; ai.planAt = simTime + L.react * (B.isServe ? 0.6 : 1) + Math.abs(gauss()) * 0.06; ai.plan = null; ai.fixed = false;
+      ai.planId = B.hitId; ai.planAt = simTime + (B.isServe ? L.react * 0.6 + (B.svPress || 0) * L.svRead : L.react) + Math.abs(gauss()) * 0.06; ai.plan = null; ai.fixed = false;
       ai.err = { x:gauss() * 0.35 * k + (misread ? Math.sign(gauss()) * rand(0.5, 0.9) : 0), z:gauss() * 0.5 * k };
     }
     if (simTime >= ai.planAt && (!ai.plan || (!ai.fixed && simTime >= ai.planAt + 0.35))) {
       if (ai.plan) { ai.fixed = true; ai.err.x *= 0.35; ai.err.z *= 0.35; }   // corrige a leitura a meio do caminho
-      const p = planIntercept(pl, L.speed, 0);
+      const p = planIntercept(pl, cpuSpeed(L), 0);
       ai.plan = p ? { x:p.x + ai.err.x, z:p.z + ai.err.z } : null;
     }
     if (ai.plan) { pl.target = ai.plan; pl.walk = false; }
@@ -751,7 +802,10 @@ function cpuUpdate(pl) {
 }
 function cpuTryHit(pl) {
   if (!reachable(pl)) { whiff(pl); return; }
-  const L = LEVELS[M.level], foe = P[other(pl.idx)], r = -pl.side;
+  const L = LEVELS[M.level];
+  // serviço forte e bem colocado: o CPU às vezes não consegue ler e falha a resposta (o ás tem de ser possível, mais nos níveis baixos)
+  if (B.isServe && Math.random() < (B.svPress || 0) ** 2 * L.ace) { whiff(pl); return; }
+  const foe = P[other(pl.idx)], r = -pl.side;
   const fx = foe.pos.x || rand(-1, 1);
   const stretched = Math.hypot(pl.vel.x, pl.vel.z) > 3.2 || Math.abs(B.p.x - pl.pos.x) > 1.25;   // a correr ou esticado: joga mais seguro
   let tx = stretched ? rand(-1.2, 1.2) : Math.random() < 0.7 ? -Math.sign(fx) * rand(L.width * 0.5, L.width) : rand(-L.width, L.width) * 0.6;
@@ -784,7 +838,7 @@ function updatePlayer(pl, dt) {
     let wx = 0, wz = 0;
     if (pl.target && !locked) {
       const dx = pl.target.x - pl.pos.x, dz = pl.target.z - pl.pos.z, d = Math.hypot(dx, dz);
-      const top = pl.walk ? WALK_SPEED : pl.isCPU ? LEVELS[M.level].speed : RUN_SPEED;
+      const top = pl.walk ? WALK_SPEED : pl.isCPU ? cpuSpeed(LEVELS[M.level]) : RUN_SPEED;
       const want = Math.min(top, d * 7);
       if (d > 0.02) { wx = dx / d * want; wz = dz / d * want; }
       else if (!pl.isCPU) { pl.target = null; pl.walk = false; }
@@ -985,11 +1039,11 @@ function showAimVisuals() {
 
 // ---------------------------------------------------------------- HUD
 let toastTimer = null;
-// faixa de resultado estilo TV (entra pela esquerda)
+// etiqueta do resultado do ponto (topo, ao centro)
 function toast(text, cls = 'info', sub = '', ms = 900) {
   const el = $('toast');
   el.className = cls + (sub ? '' : ' nosub');
-  el.querySelector('.b-title').textContent = text; el.querySelector('.b-sub').textContent = sub;
+  el.querySelector('.b-title').textContent = String(text).replace(/!$/, ''); el.querySelector('.b-sub').textContent = sub;
   void el.offsetWidth; el.classList.add('show');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), ms);
 }
@@ -1065,21 +1119,27 @@ function updatePops(dt) {
     if (p.t > 0.95) { p.el.remove(); pops.splice(i, 1); }
   }
 }
-const screens = ['menu', 'hostScr', 'joinScr', 'tourScr', 'endScr', 'msgScr'];
+const screens = ['menu', 'tourScr', 'endScr', 'msgScr'];        // + os ecrãs do modo online (online.js)
 function show(id) {
   for (const s of screens) $(s).classList.toggle('off', s !== id);
   const game = id === null;
   $('hud').classList.toggle('fade-out', !game); $('quit').classList.toggle('hidden', !game); $('camBtn').classList.toggle('hidden', !game);
-  if (!game) { $('hint').classList.add('hidden'); $('aimLbl').classList.remove('show'); hideCoach(); $('toast').classList.remove('show'); }
+  if (!game) { $('hint').classList.add('hidden'); $('aimLbl').classList.remove('show'); hideCoach(); $('toast').classList.remove('show'); $('rally').classList.remove('show');
+    for (const p of pops) p.el.remove(); pops.length = 0; }
 }
 const icon = (id, cls = 'i') => `<svg class="${cls}"><use href="#i-${id}"/></svg>`;
 document.addEventListener('contextmenu', e => { if (!e.target.closest('input')) e.preventDefault(); });
-function myName() { const n = ($('nameIn').value || $('joinName').value || '').trim(); return n || 'Jogador'; }
-function saveName(n) { store.set('name', n); $('nameIn').value = n; $('joinName').value = n; }
+function myName() { const n = ($('nameIn').value || '').trim(); return n || 'Jogador'; }
+function saveName(n) { store.set('name', n); $('nameIn').value = n; }
+// equipamento: o do perfil; o adversário nunca veste igual
+const nLooks = () => LOOK_PRESETS.length;
+const myLook = () => { const me = typeof online !== 'undefined' && online.me(); return me ? clamp(me.look | 0, 0, nLooks() - 1) : 0; };
+const otherLook = (a, pref) => (pref === undefined || pref === a ? (a + 1 + ((Math.random() * (nLooks() - 1)) | 0)) % nLooks() : pref);
 
 function startMatch(cfg) {
   Object.assign(M, { mode:cfg.mode, me:cfg.me, names:cfg.names, surface:cfg.surface, level:cfg.level ?? M.level,
-    first:cfg.first, score:[0, 0], pointsPlayed:0, wantRematch:false, remoteRematch:false, tips:{}, counts:{}, toss:null, lastMine:{} });
+    first:cfg.first, score:[0, 0], pointsPlayed:0, wantRematch:false, remoteRematch:false, tips:{}, counts:{}, toss:null, lastMine:{},
+    stats:[newStats(), newStats()], matchId:cfg.matchId || null, game:cfg.game || 1, opp:cfg.opp || null });
   buildCourt(M.surface);
   P.forEach((p, i) => { p.isCPU = false; p.remote = false; p.target = null; p.swipe = null; p.act = null; p.ai.planId = -1; p.lookIdx = cfg.looks ? cfg.looks[i] : i; p.fig.setLook(LOOK_PRESETS[p.lookIdx]); });
   if (M.mode === 'cpu' || M.mode === 'tour') P[1].isCPU = true;
@@ -1107,8 +1167,36 @@ function finishMatch() {
   }
   sfx.ui(won ? 'win' : 'lose'); if (won) sfx.cheer(1);
   $('endSub').textContent = sub; $('bEndMain').textContent = main; $('bEndMain').disabled = false;
+  renderStats();
+  if (onMatchEnd) try { onMatchEnd({ won, w }); } catch (e) { console.warn('resultado não guardado', e); }
   show('endScr');
 }
+// quadro tipo transmissão: eu à esquerda, adversário à direita, o melhor valor de cada linha em destaque
+function renderStats() {
+  const a = M.stats[M.me], b = M.stats[other(M.me)];
+  const pct = (n, d) => d ? Math.round(100 * n / d) : null;
+  const rows = [
+    ['Pontos ganhos', a.pointsWon, b.pointsWon],
+    ['1.º serviço', pct(a.firstIn, a.firstTotal), pct(b.firstIn, b.firstTotal), '%'],
+    ['Ganhos com o 1.º serviço', pct(a.firstWon, a.firstIn), pct(b.firstWon, b.firstIn), '%'],
+    ['Ganhos com o 2.º serviço', pct(a.secondWon, a.secondTotal), pct(b.secondWon, b.secondTotal), '%'],
+    ['Ases', a.aces, b.aces],
+    ['Duplas faltas', a.doubleFaults, b.doubleFaults, '', true],
+    ['Serviço mais rápido (km/h)', a.fastestServe || null, b.fastestServe || null],
+    ['Vencedores', a.winners, b.winners],
+    ['Erros', a.errors, b.errors, '', true],
+  ];
+  const fmt = (v, u) => v === null ? '–' : v + (u === '%' ? '%' : '');
+  let html = `<div class="hd"><span>${escHtml(M.names[M.me])}</span><span></span><span>${escHtml(M.names[other(M.me)])}</span></div>`;
+  for (const [lb, x, y, u = '', low = false] of rows) {
+    const diff = x !== null && y !== null && x !== y, bx = diff && (low ? x < y : x > y), by = diff && !bx;
+    html += `<div class="sr"><span class="v l${bx ? ' best' : ''}">${fmt(x, u)}</span><span class="lb">${lb}</span><span class="v r${by ? ' best' : ''}">${fmt(y, u)}</span></div>`;
+  }
+  html += `<div class="ft">Troca mais longa: <b>${a.longestRally} pancadas</b></div>`;
+  $('endStats').innerHTML = html;
+}
+const escHtml = t => String(t).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+let onMatchEnd = null;                     // ligado pelo módulo online (guardar o resultado no perfil)
 function goMenu() {
   M.mode = 'menu'; sfx.crowdBed(false);
   netClose();
@@ -1131,7 +1219,6 @@ const setCoach = seg('segCoach', 'coach', store.get('coach', 'on'));
 buildCourt(M.surface);
 saveName(store.get('name', ''));
 $('nameIn').addEventListener('change', e => saveName(e.target.value.trim()));
-$('joinName').addEventListener('change', e => saveName(e.target.value.trim()));
 document.querySelectorAll('[data-back]').forEach(b => b.addEventListener('click', goMenu));
 document.addEventListener('click', e => {
   const b = e.target.closest('button, .btn'); if (!b) return;
@@ -1145,7 +1232,7 @@ $('bQuick').addEventListener('click', () => {
   audio(); saveName(myName());
   const lv = store.get('level', 1);
   startMatch({ mode:'cpu', me:0, names:[myName(), 'CPU · ' + LEVELS[lv].label], surface:store.get('surface', 'hard'), level:lv,
-    first:Math.random() < 0.5 ? 0 : 1, looks:[0, 1 + ((Math.random() * 4) | 0)] });
+    first:Math.random() < 0.5 ? 0 : 1, looks:[myLook(), otherLook(myLook())] });
 });
 function renderBracket() {
   $('bracket').innerHTML = '';
@@ -1160,84 +1247,61 @@ function renderBracket() {
 $('bTour').addEventListener('click', () => { audio(); saveName(myName()); renderBracket(); show('tourScr'); });
 $('bTourPlay').addEventListener('click', () => {
   const r = TOUR[M.tourRound];
-  startMatch({ mode:'tour', me:0, names:[myName(), r.opp], surface:r.surface, level:r.level, first:Math.random() < 0.5 ? 0 : 1, looks:[0, r.look] });
+  startMatch({ mode:'tour', me:0, names:[myName(), r.opp], surface:r.surface, level:r.level, first:Math.random() < 0.5 ? 0 : 1, looks:[myLook(), otherLook(myLook(), r.look)] });
 });
 $('bEndMain').addEventListener('click', () => {
   if (M.mode === 'tour') { renderBracket(); show('tourScr'); return; }
   if (M.mode === 'online') {
     M.wantRematch = true; netSend({ t:'rematch' }); $('bEndMain').textContent = 'À espera do amigo…'; $('bEndMain').disabled = true; maybeRematch(); return;
   }
-  startMatch({ mode:'cpu', me:0, names:M.names, surface:M.surface, level:M.level, first:Math.random() < 0.5 ? 0 : 1, looks:[0, 1 + ((Math.random() * 4) | 0)] });
+  startMatch({ mode:'cpu', me:0, names:M.names, surface:M.surface, level:M.level, first:Math.random() < 0.5 ? 0 : 1, looks:[myLook(), otherLook(myLook())] });
 });
 $('bEndMenu').addEventListener('click', goMenu);
 
-// ---------------------------------------------------------------- online (PeerJS, ligação direta entre telemóveis)
-const NET = { peer:null, conn:null, host:false, rtt:0.1, code:'', pingT:null, lastPos:0, url:'' };
-const PREFIX = 'duelotenis-v1-';
-function netSend(m) { try { if (NET.conn && NET.conn.open) NET.conn.send(m); } catch (e) {} }
-function netClose() {
-  clearInterval(NET.pingT);
-  netSend({ t:'bye' });
-  const c = NET.conn, p = NET.peer;
-  NET.peer = NET.conn = null; NET.url = '';
-  try { c && c.close(); } catch (e) {}
-  try { p && p.destroy(); } catch (e) {}
+// ---------------------------------------------------------------- online (servidor próprio: perfis, lobby, convites; relé + ligação direta)
+const NET = { rtt:0.1, pingT:null, lastPos:0, host:false, match:null };
+const netSend = m => online.send(m);
+function netClose() { clearInterval(NET.pingT); NET.pingT = null; online.close(); NET.match = null; }
+function netError(title, text) {
+  // no fim do jogo não interrompe o quadro de estatísticas: só desliga a revanche
+  if (M.mode === 'online' && M.phase === 'over' && !$('endScr').classList.contains('off')) {
+    netClose(); $('bEndMain').textContent = 'O teu amigo saiu'; $('bEndMain').disabled = true; return;
+  }
+  M.mode = 'menu'; netClose(); sfx.crowdBed(false); timers.length = 0; B.live = false;
+  $('msgTitle').textContent = title; $('msgText').textContent = text; show('msgScr');
 }
-function netError(title, text) { M.mode = 'menu'; netClose(); $('msgTitle').textContent = title; $('msgText').textContent = text; show('msgScr'); }
-function wire(conn) {
-  NET.conn = conn;
-  conn.on('data', onNet);
-  conn.on('close', () => { if (NET.conn === conn && (inMatch() || !$('endScr').classList.contains('hidden'))) netError('Ligação terminada', 'O teu amigo saiu do jogo.'); });
-  conn.on('open', () => {
-    clearInterval(NET.pingT);
-    NET.pingT = setInterval(() => netSend({ t:'ping', c:performance.now() }), 2000);
-    if (!NET.host) netSend({ t:'hello', name:myName() });
-  });
-}
-function hostGame() {
-  if (typeof Peer === 'undefined') return netError('Sem ligação', 'Não foi possível carregar o modo online. Verifica a internet.');
-  netClose(); NET.host = true;
-  NET.code = Math.random().toString(36).slice(2, 8);
-  $('linkBox').textContent = 'A criar sala…'; $('hostStatus').textContent = 'À espera do teu amigo…';
-  show('hostScr');
-  const peer = NET.peer = new Peer(PREFIX + NET.code);
-  peer.on('open', () => {
-    const url = location.origin + location.pathname + '#d=' + NET.code;
-    NET.url = url; $('linkBox').textContent = url;
-    $('bWa').href = 'https://wa.me/?text=' + encodeURIComponent('Desafio-te para um duelo de ténis: ' + url);
-  });
-  peer.on('connection', c => { if (NET.conn) { c.close(); return; } $('hostStatus').textContent = 'Amigo a entrar…'; wire(c); });
-  peer.on('error', e => {
-    if (e.type === 'unavailable-id') return hostGame();
-    netError('Erro de ligação', 'Não foi possível criar a sala (' + e.type + '). Tenta outra vez.');
-  });
-}
-function joinGame(code) {
-  if (typeof Peer === 'undefined') return netError('Sem ligação', 'Não foi possível carregar o modo online. Verifica a internet.');
-  netClose(); NET.host = false;
-  $('joinStatus').textContent = 'A ligar ao teu amigo…'; $('bJoin').disabled = true;
-  const peer = NET.peer = new Peer();
-  peer.on('open', () => wire(peer.connect(PREFIX + code, { reliable:true })));
-  peer.on('error', e => {
-    $('bJoin').disabled = false;
-    if (e.type === 'peer-unavailable') netError('Convite expirado', 'O teu amigo já não está na sala. Pede-lhe um link novo.');
-    else netError('Erro de ligação', 'Não foi possível ligar (' + e.type + ').');
-  });
-  setTimeout(() => { if (M.mode === 'menu' && !$('joinScr').classList.contains('hidden') && NET.peer === peer) $('joinStatus').textContent = 'Está a demorar… confirma que o teu amigo tem o jogo aberto.'; }, 9000);
-}
+function startPing() { clearInterval(NET.pingT); NET.pingT = setInterval(() => netSend({ t:'ping', c:performance.now() }), 2000); }
+const online = createOnline({
+  store, sfx, buzz, esc:escHtml, looks:LOOK_PRESETS.map(l => (l.shirt === 0xf4f4f4 ? l.shorts : l.shirt)),
+  show, toast, goMenu, netError, inMatch, myName, setName:saveName, surface:() => store.get('surface', 'hard'),
+  onNet:m => onNet(m),
+  betweenPoints:() => M.mode !== 'online' || M.phase !== 'rally',
+  leaveForMatch:() => { if (inMatch() && M.mode !== 'online') { M.mode = 'menu'; timers.length = 0; B.live = false; sfx.crowdBed(false); } },
+  hostStart:m => { NET.host = true; NET.match = m; startPing(); sendStart(); },
+});
+screens.push(...online.screens);
+const lookOf = u => clamp((u && u.look) | 0, 0, nLooks() - 1);
 function sendStart() {
-  const cfg = { names:[myName(), NET.guestName || 'Amigo'], surface:store.get('surface', 'hard'), first:Math.random() < 0.5 ? 0 : 1, looks:[0, 1] };
+  const m = NET.match, me = online.me(); if (!m) return;
+  const a = lookOf(me), b = otherLook(a, lookOf(m.opp));
+  const game = M.mode === 'online' && M.matchId === m.matchId ? M.game + 1 : 1;
+  const cfg = { names:[me ? me.name : myName(), m.opp.name], surface:(m.cfg && m.cfg.surface) || 'hard', first:Math.random() < 0.5 ? 0 : 1, looks:[a, b], matchId:m.matchId, game };
   netSend({ t:'start', ...cfg });
-  startMatch({ mode:'online', me:0, ...cfg });
+  startMatch({ mode:'online', me:0, ...cfg, opp:m.opp });
 }
 function maybeRematch() { if (NET.host && M.wantRematch && M.remoteRematch) sendStart(); }
 function onNet(m) {
   switch (m.t) {
-    case 'hello': if (NET.host) { NET.guestName = String(m.name || 'Amigo').slice(0, 12); sendStart(); } break;
-    case 'start': if (!NET.host) startMatch({ mode:'online', me:1, names:m.names, surface:m.surface, first:m.first, looks:m.looks }); break;
-    case 'pos': { const p = P[other(M.me)]; p.netPos = { x:m.x, z:m.z }; break; }
-    case 'toss': if (M.phase === 'pointover') runTimers(true); if (M.phase === 'preserve') M.toss = { idx:other(M.me), t0:simTime, aim:null, releaseAt:null }; break;
+    case 'start': {
+      if (NET.host && M.mode === 'online') break;
+      const L = online.link(); NET.host = false; NET.match = L ? L.m : null; online.guestStarted(); startPing();
+      startMatch({ mode:'online', me:1, names:m.names, surface:m.surface, first:m.first, looks:m.looks, matchId:m.matchId, game:m.game, opp:NET.match && NET.match.opp });
+      break;
+    }
+    case 'pos': { if (M.mode !== 'online') break; const p = P[other(M.me)]; p.netPos = { x:m.x, z:m.z }; break; }
+    case 'toss': if (M.mode !== 'online') break; if (M.phase === 'pointover') runTimers(true); if (M.phase === 'preserve') M.toss = { idx:other(M.me), t0:simTime, aim:null, releaseAt:null }; break;
     case 'hit': {
+      if (M.mode !== 'online') break;
       if (M.phase === 'pointover') runTimers(true);
       const idx = other(M.me);
       if (P[idx].netPos) P[idx].pos.x = P[idx].netPos.x;
@@ -1246,33 +1310,29 @@ function onNet(m) {
       for (let t = 0; t < lag; t += STEP) stepBall(STEP);
       break;
     }
-    case 'point': applyPoint(m.w, m.r); break;
-    case 'fault': applyFault(m.r); break;
-    case 'let': applyLet(); break;
+    case 'point': if (M.mode === 'online') applyPoint(m.w, m.r); break;
+    case 'fault': if (M.mode === 'online') applyFault(m.r); break;
+    case 'let': if (M.mode === 'online') applyLet(); break;
     case 'ping': netSend({ t:'pong', c:m.c }); break;
     case 'pong': NET.rtt = (performance.now() - m.c) / 1000; break;
     case 'rematch': M.remoteRematch = true; maybeRematch(); break;
     case 'bye': netError('Ligação terminada', 'O teu amigo saiu do jogo.'); break;
   }
 }
-const OFFLINE_MSG = 'O duelo com amigos precisa de internet. Sem ligação podes jogar contra o CPU ou o torneio.';
-$('bFriend').addEventListener('click', () => { audio(); saveName(myName()); if (!navigator.onLine) return netError('Sem internet', OFFLINE_MSG); hostGame(); });
-$('bCopy').addEventListener('click', async () => {
-  const label = t => { $('bCopy').innerHTML = icon('copy') + t; };
-  try { await navigator.clipboard.writeText(NET.url || ''); label('Copiado'); } catch (e) { label('Seleciona e copia'); }
-  setTimeout(() => label('Copiar link'), 1800);
-});
-$('bShare').addEventListener('click', async () => {
-  if (!NET.url) return;
-  if (navigator.share) { try { await navigator.share({ title:'Duelo Ténis', text:'Desafio-te para um duelo de ténis.', url:NET.url }); } catch (e) {} }
-  else $('bCopy').click();
-});
-$('bJoin').addEventListener('click', () => {
-  audio(); saveName(($('joinName').value || '').trim() || 'Amigo');
-  const code = (location.hash.match(/d=([a-z0-9]+)/) || [])[1];
-  if (!navigator.onLine) return netError('Sem internet', OFFLINE_MSG);
-  if (code) joinGame(code);
-});
+const randomId = () => Array.from(crypto.getRandomValues(new Uint8Array(12)), x => x.toString(16).padStart(2, '0')).join('');
+// fim do jogo → resultado e estatísticas para o perfil (fica em fila se não houver rede)
+onMatchEnd = ({ won, w }) => {
+  if (!online.hasAccount()) return;
+  if (M.mode === 'online' && M.matchId && M.opp) {
+    const me = online.me(); if (!me) return;
+    const ids = M.me === 0 ? [me.id, M.opp.id] : [M.opp.id, me.id];            // índice 0 = quem convidou (anfitrião)
+    online.reportMatch({ mode:'online', matchId:M.matchId, game:M.game, winner:ids[w], score:[M.score[0], M.score[1]], stats:{ [ids[0]]:M.stats[0], [ids[1]]:M.stats[1] } });
+  } else if (M.mode === 'cpu' || M.mode === 'tour') {
+    online.reportMatch({ mode:'cpu', clientId:randomId(), level:M.level, won, score:[M.score[M.me], M.score[other(M.me)]], stats:M.stats[M.me] });
+  }
+};
+const OFFLINE_MSG = 'O jogo com amigos precisa de internet. Sem ligação podes jogar contra o CPU ou o torneio.';
+$('bFriend').addEventListener('click', () => { audio(); saveName(myName()); if (!navigator.onLine) return netError('Sem internet', OFFLINE_MSG); online.openLobby(); });
 
 // ---------------------------------------------------------------- ciclo principal
 function step(dt) {
@@ -1314,7 +1374,7 @@ function frame(now, manual) {
     acc += dt;
     while (acc >= STEP) { step(STEP); acc -= STEP; }
     alpha = acc / STEP;
-    if (M.mode === 'online' && now - NET.lastPos > 66) { NET.lastPos = now; const me = P[M.me]; netSend({ t:'pos', x:+me.pos.x.toFixed(3), z:+me.pos.z.toFixed(3) }); }
+    if (M.mode === 'online' && now - NET.lastPos > (online.via() === 'direta' ? 66 : 100)) { NET.lastPos = now; const me = P[M.me]; netSend({ t:'pos', x:+me.pos.x.toFixed(3), z:+me.pos.z.toFixed(3) }); }
   }
   if (B.held && M.phase === 'preserve') {
     const sv = P[M.server], s = sv.side;
@@ -1387,11 +1447,16 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || /[?&]sw=1
   navigator.serviceWorker.addEventListener('controllerchange', () => { if (updateAsked) location.reload(); });
 }
 
-const inviteCode = (location.hash.match(/d=([a-z0-9]+)/) || [])[1];
-if (inviteCode) show('joinScr'); else goMenu();
+const oldInvite = /[#&]d=[a-z0-9]+/.test(location.hash);
+const friendLinkOpened = online.init();
+if (oldInvite) {
+  history.replaceState(null, '', location.pathname + location.search);
+  netError('Convites novos', 'Agora os desafios são feitos dentro do jogo. Toca em "Jogar com amigos", cria o teu perfil e adiciona o teu amigo pelo código ou pelo link de amigo.');
+} else if (friendLinkOpened && !online.hasAccount()) { goMenu(); online.openProfileSetup(); }
+else goMenu();
 
 // ganchos para testes
-window.__dt = { M, B, P, startMatch, NET, advance, predictBall, touch, aimFromSwipe, serveAimFromSwipe, commitShot, startToss, releaseServe, serveTarget, onTap, camera, debugCam, CLOSE, CAM, setCam, LAB, render:() => renderer.render(scene, camera),
+window.__dt = { M, B, P, startMatch, NET, online, advance, predictBall, touch, aimFromSwipe, serveAimFromSwipe, commitShot, startToss, releaseServe, serveTarget, onTap, camera, debugCam, CLOSE, CAM, setCam, LAB, render:() => renderer.render(scene, camera),
   freeze(on) { hitStopUntil = on ? Infinity : 0; }, renderer, perf,
   simulate(sec) { for (let t = 0; t < sec; t += STEP) step(STEP); },
   get simTime() { return simTime; } };

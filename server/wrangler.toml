@@ -1,0 +1,36 @@
+# Duelo Ténis — servidor online (Worker + Durable Objects), plano gratuito.
+name = "duelo-tenis-api"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+
+# Hub: instância global única (contas, amigos, partidas, presença, convites).
+# Room: uma por partida online (relay entre os dois telemóveis).
+[[durable_objects.bindings]]
+name = "HUB"
+class_name = "Hub"
+
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "Room"
+
+# No plano gratuito só são permitidos Durable Objects com SQLite.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Hub", "Room"]
+
+[observability]
+enabled = true
+
+# Os "invocation logs" automáticos guardam o URL de cada pedido, e o WebSocket do hub leva o token
+# da conta na query (?token=…). Desligamo-los para nunca guardar tokens; os console.log/console.error
+# do código (que nunca incluem tokens) continuam a aparecer em Workers Logs.
+[observability.logs]
+enabled = true
+invocation_logs = false
+
+# Variáveis opcionais (não secretas). Descomentar para usar um TURN estático:
+# [vars]
+# TURN_URLS = "turn:turn.exemplo.pt:3478?transport=udp,turns:turn.exemplo.pt:5349?transport=tcp"
+# TURN_USERNAME = "utilizador"
+# Segredos (nunca neste ficheiro): SECRET, TURN_KEY_ID, TURN_KEY_TOKEN, TURN_CREDENTIAL
+#   npx wrangler secret put SECRET
