@@ -2,6 +2,9 @@
 name = "duelo-tenis-api"
 main = "src/index.js"
 compatibility_date = "2026-11-01"
+# Endereço público: https://duelo-tenis-api.duelo-tenis-api.workers.dev (sem URLs de pré-visualização por versão)
+workers_dev = true
+preview_urls = false
 
 # Hub: instância global única (contas, amigos, partidas, presença, convites).
 # Room: uma por partida online (relay entre os dois telemóveis).
