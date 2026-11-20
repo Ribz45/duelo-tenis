@@ -195,11 +195,17 @@ export function clampInt(v, min, max, def = min) {
 // Controlos C0/C1, marcas bidi e caracteres invisíveis (mantém o ZWJ U+200D, usado nos emojis).
 const NAME_STRIP_RE = /[\p{Cc}​‌‎‏‪-‮⁠-⁤⁦-⁩﻿]/gu;
 
+/** Texto visível a outros: NFC, sem caracteres de controlo/invisíveis, espaços colapsados, aparado. */
+export const sanitizeText = (raw) => raw.normalize('NFC').replace(NAME_STRIP_RE, '').replace(/\s+/gu, ' ').trim();
+
+/** Corta a `max` caracteres (pontos de código, como nos nomes) e volta a aparar. */
+export const truncateChars = (s, max) => [...s].slice(0, max).join('').trim();
+
 /** Nome: sem caracteres de controlo, espaços colapsados, aparado, 1–16 caracteres. */
 export function cleanName(raw) {
   if (typeof raw !== 'string') throw new HttpError(400, 'invalid_name', 'Name must be a string');
   if (raw.length > 200) throw new HttpError(400, 'invalid_name', 'Name must be 1–16 characters');
-  const name = raw.normalize('NFC').replace(NAME_STRIP_RE, '').replace(/\s+/gu, ' ').trim();
+  const name = sanitizeText(raw);
   const len = [...name].length;
   if (len < 1 || len > 16) throw new HttpError(400, 'invalid_name', 'Name must be 1–16 characters');
   return name;

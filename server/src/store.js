@@ -8,7 +8,7 @@ const first = (cursor) => cursor.toArray()[0] || null;
 
 export const publicUser = (row) => (row ? { id: row.id, name: row.name, tag: row.tag, look: row.look } : null);
 
-const USER_COLS = 'id, name, tag, look, last_seen';
+const USER_COLS = 'id, name, tag, look, last_seen, elo';
 
 export const userById = (sql, id) => first(sql.exec(`SELECT ${USER_COLS} FROM users WHERE id = ?`, id));
 export const userByTag = (sql, tag) => first(sql.exec(`SELECT ${USER_COLS} FROM users WHERE tag = ?`, tag));
@@ -36,6 +36,51 @@ export function updateUser(sql, id, { name, look }) {
 }
 
 export const touchLastSeen = (sql, id, now) => sql.exec('UPDATE users SET last_seen = ? WHERE id = ?', now, id);
+
+// ---------- Resumo da carreira (visível aos amigos) ----------
+
+// Colunas de `careers c` com prefixo, para juntar a outras consultas (LEFT JOIN → c_uid NULL se não houver).
+const CAREER_SELECT = `c.user_id AS c_uid, c.rank AS c_rank, c.best_rank AS c_best, c.titles AS c_titles,
+  c.majors AS c_majors, c.level AS c_level, c.season AS c_season, c.name AS c_name`;
+
+/** { rank, bestRank, titles, majors, level, season, name? } ou null. */
+function careerFromRow(r) {
+  if (!r || r.c_uid === null || r.c_uid === undefined) return null;
+  const s = {
+    rank: r.c_rank,
+    bestRank: r.c_best,
+    titles: r.c_titles,
+    majors: r.c_majors,
+    level: r.c_level,
+    season: r.c_season,
+  };
+  if (r.c_name) s.name = r.c_name;
+  return s;
+}
+
+export const careerSummary = (sql, userId) =>
+  careerFromRow(first(sql.exec(`SELECT ${CAREER_SELECT} FROM careers c WHERE c.user_id = ?`, userId)));
+
+export function setCareer(sql, userId, s, now) {
+  sql.exec(
+    `INSERT INTO careers (user_id, rank, best_rank, titles, majors, level, season, name, at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET rank = excluded.rank, best_rank = excluded.best_rank,
+       titles = excluded.titles, majors = excluded.majors, level = excluded.level, season = excluded.season,
+       name = excluded.name, at = excluded.at`,
+    userId,
+    s.rank,
+    s.bestRank,
+    s.titles,
+    s.majors,
+    s.level,
+    s.season,
+    s.name ?? null,
+    now,
+  );
+}
+
+export const deleteCareer = (sql, userId) => sql.exec('DELETE FROM careers WHERE user_id = ?', userId);
 
 // ---------- Amizades e pedidos ----------
 
@@ -79,14 +124,17 @@ export const countIncoming = (sql, id) =>
 export const friendIds = (sql, id) =>
   sql.exec('SELECT friend_id FROM friends WHERE user_id = ?', id).toArray().map((r) => r.friend_id);
 
+/** Amigos com o resumo da carreira já junto (`row.career`, ou null) e o Elo (`row.elo`). */
 export const friendRows = (sql, id) =>
   sql
     .exec(
-      `SELECT u.id, u.name, u.tag, u.look, u.last_seen FROM friends f JOIN users u ON u.id = f.friend_id
+      `SELECT u.id, u.name, u.tag, u.look, u.last_seen, u.elo, ${CAREER_SELECT}
+       FROM friends f JOIN users u ON u.id = f.friend_id LEFT JOIN careers c ON c.user_id = u.id
        WHERE f.user_id = ? ORDER BY u.name COLLATE NOCASE`,
       id,
     )
-    .toArray();
+    .toArray()
+    .map((r) => ({ ...r, career: careerFromRow(r) }));
 
 export const incomingRequests = (sql, id) =>
   sql
@@ -192,6 +240,97 @@ export function listMatches(sql, userId, withId, limit) {
     at: r.at,
   }));
 }
+
+// ---------- Elo (escada de amigos) ----------
+
+export const ELO_K = 32;
+
+/** Novo rating de A depois de um jogo contra B (scoreA: 1 vitória, 0 derrota), arredondado. */
+export function eloAfter(ra, rb, scoreA) {
+  const expected = 1 / (1 + 10 ** ((rb - ra) / 400));
+  return Math.round(ra + ELO_K * (scoreA - expected));
+}
+
+/** Aplica um resultado online ao Elo e às vitórias/derrotas da escada. Ignora jogos inválidos. */
+export function applyElo(sql, winnerId, loserId) {
+  if (!winnerId || !loserId || winnerId === loserId) return false;
+  const w = first(sql.exec('SELECT elo FROM users WHERE id = ?', winnerId));
+  const l = first(sql.exec('SELECT elo FROM users WHERE id = ?', loserId));
+  if (!w || !l) return false;
+  sql.exec('UPDATE users SET elo = ?, elo_w = elo_w + 1 WHERE id = ?', eloAfter(w.elo, l.elo, 1), winnerId);
+  sql.exec('UPDATE users SET elo = ?, elo_l = elo_l + 1 WHERE id = ?', eloAfter(l.elo, w.elo, 0), loserId);
+  return true;
+}
+
+/** Eu + amigos aceites, por Elo (desc). */
+export function ladder(sql, userId) {
+  return sql
+    .exec(
+      `SELECT id, name, tag, look, elo, elo_w, elo_l FROM users
+       WHERE id = ? OR id IN (SELECT friend_id FROM friends WHERE user_id = ?)
+       ORDER BY elo DESC, elo_w DESC, name COLLATE NOCASE, id`,
+      userId,
+      userId,
+    )
+    .toArray()
+    .map((r) => ({ user: publicUser(r), elo: r.elo, w: r.elo_w, l: r.elo_l, me: r.id === userId }));
+}
+
+// ---------- Gravações por utilizador ----------
+
+export const getSave = (sql, userId, key) =>
+  first(sql.exec('SELECT rev, data, at FROM saves WHERE user_id = ? AND key = ?', userId, key));
+
+export const saveMeta = (sql, userId, key) =>
+  first(sql.exec('SELECT rev, at FROM saves WHERE user_id = ? AND key = ?', userId, key));
+
+export function putSave(sql, userId, key, rev, data, at) {
+  sql.exec(
+    `INSERT INTO saves (user_id, key, rev, data, at) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, key) DO UPDATE SET rev = excluded.rev, data = excluded.data, at = excluded.at`,
+    userId,
+    key,
+    rev,
+    data,
+    at,
+  );
+}
+
+// ---------- Desafio diário ----------
+
+export const dailyScore = (sql, day, userId) =>
+  first(sql.exec('SELECT score, detail, at FROM daily_scores WHERE day = ? AND user_id = ?', day, userId));
+
+export function setDailyScore(sql, day, userId, score, detail, at) {
+  sql.exec(
+    `INSERT INTO daily_scores (day, user_id, score, detail, at) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(day, user_id) DO UPDATE SET score = excluded.score, detail = excluded.detail, at = excluded.at`,
+    day,
+    userId,
+    score,
+    detail,
+    at,
+  );
+}
+
+/** Eu + amigos aceites com pontuação nesse dia: pontuação desc, depois quem a fez primeiro. */
+export function dailyBoard(sql, day, userId, limit) {
+  return sql
+    .exec(
+      `SELECT u.id, u.name, u.tag, u.look, d.score, d.detail FROM daily_scores d JOIN users u ON u.id = d.user_id
+       WHERE d.day = ? AND (d.user_id = ? OR d.user_id IN (SELECT friend_id FROM friends WHERE user_id = ?))
+       ORDER BY d.score DESC, d.at ASC, d.user_id LIMIT ?`,
+      day,
+      userId,
+      userId,
+      limit,
+    )
+    .toArray()
+    .map((r) => ({ user: publicUser(r), score: r.score, detail: r.detail, me: r.id === userId }));
+}
+
+/** Limpeza ocasional de dias antigos (`beforeDay` em 'YYYY-MM-DD'; a ordem das strings é a das datas). */
+export const pruneDaily = (sql, beforeDay) => sql.exec('DELETE FROM daily_scores WHERE day < ?', beforeDay);
 
 // ---------- Limites de pedidos (janela fixa) ----------
 

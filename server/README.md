@@ -1,8 +1,10 @@
 # Duelo Ténis — servidor online
 
 Servidor do modo online do Duelo Ténis: contas de jogador (sem palavras-passe), amigos, presença em tempo
-real, convites dentro do jogo, resultados/estatísticas/confrontos diretos, e um **relay por WebSocket** para que
-dois telemóveis consigam sempre jogar juntos, mesmo quando a ligação WebRTC direta (PeerJS) falha.
+real, convites dentro do jogo, resultados/estatísticas/confrontos diretos, gravações na nuvem (carreira e
+conquistas, com o resumo da carreira visível aos amigos), desafio diário com quadro entre amigos, escada de amigos
+com Elo, e um **relay por WebSocket** para que dois telemóveis consigam sempre jogar juntos, mesmo quando a
+ligação WebRTC direta (PeerJS) falha.
 
 O contrato completo (caminhos, formatos, mensagens, limites) está em [`../docs/online-api.md`](../docs/online-api.md).
 
@@ -10,17 +12,17 @@ O contrato completo (caminhos, formatos, mensagens, limites) está em [`../docs/
 
 - **Cloudflare Worker** (JavaScript simples, módulos ES, sem passo de build nem frameworks), no **plano gratuito**.
 - **`Hub`** — Durable Object com SQLite, instância global única (`idFromName('global')`). Guarda utilizadores,
-  amizades, partidas, estatísticas e limites de pedidos em `ctx.storage.sql`, e gere a presença e os convites
-  pelos WebSockets do hub (API de hibernação).
+  amizades, partidas, estatísticas, gravações, resumos da carreira, pontuações diárias, Elo e limites de pedidos
+  em `ctx.storage.sql`, e gere a presença e os convites pelos WebSockets do hub (API de hibernação).
 - **`Room`** — Durable Object, um por partida online. Só faz relay entre os dois jogadores; não guarda nada.
 
 | Ficheiro | O quê |
 |---|---|
 | `src/index.js` | Worker de entrada: CORS, `/api/health`, encaminha `/api/*` e `/ws` para o Hub e `/ws/room/:id` para a Room |
 | `src/hub.js` | Durable Object `Hub`: WebSockets do hub, presença, convites, criação de partidas e bilhetes |
-| `src/api.js` | Endpoints HTTP (`/api/register`, `/api/me`, amigos, utilizadores, partidas, ICE) |
-| `src/store.js` | Consultas SQL (sempre parametrizadas): utilizadores, amigos, recorde, h2h, limites |
-| `src/schema.js` | Esquema SQLite e migrações |
+| `src/api.js` | Endpoints HTTP (`/api/register`, `/api/me`, amigos, utilizadores, partidas, ICE, `/api/save/:key`, `/api/daily`, `/api/ladder`) |
+| `src/store.js` | Consultas SQL (sempre parametrizadas): utilizadores, amigos, recorde, h2h, gravações, carreira, diário, Elo, limites |
+| `src/schema.js` | Esquema SQLite e migrações numeradas (atual: v2) |
 | `src/room.js` | Durable Object `Room`: relay, `$room`/`$join`/`$leave`, reconexão, limites de frames |
 | `src/ice.js` | `/api/ice`: STUN fixo + TURN opcional (Cloudflare Realtime TURN ou TURN estático) |
 | `src/util.js` | Ids aleatórios, SHA-256/HMAC, bilhetes, validação, respostas JSON |
@@ -32,6 +34,13 @@ Notas de desenho:
   é sempre reconstruído com `ctx.getWebSockets()`. Os **convites ficam em SQLite** (tabela `invites`, com
   expiração), por isso sobrevivem a o Hub hibernar ou ser reiniciado. Só os contadores de mensagens/s por socket
   estão em memória — se o objeto hibernar recomeçam do zero, o que é inofensivo.
+- **Migrações**: o esquema do Hub tem versão própria (tabela `meta`). As migrações em falta correm sozinhas,
+  numa transação, quando o Hub arranca (o primeiro pedido depois de publicar). Nunca se edita uma migração já
+  publicada: acrescenta-se uma nova no fim de `MIGRATIONS` em `src/schema.js`. A v2 cria `saves`, `careers` e
+  `daily_scores` e acrescenta `elo`/`elo_w`/`elo_l` a `users` (todos começam em 1000; os resultados online
+  anteriores não contam para o Elo).
+- **Elo**: só muda quando um resultado online é guardado pela primeira vez (`reported`), K = 32, nunca na
+  confirmação nem na disputa.
 - **Tokens**: o servidor guarda apenas `SHA-256(token)`. O token também é aceite escrito à mão (minúsculas,
   hífenes, I/L→1, O→0).
 - **Logs**: os *invocation logs* automáticos estão desligados em `wrangler.toml`, porque guardariam o URL do
@@ -171,7 +180,9 @@ Se o TURN falhar (rede, credenciais), o `/api/ice` continua a responder, só com
 - **Hub único**: todos os dados e a presença estão num só Durable Object. Chega bem para um jogo pequeno
   (centenas de jogadores em simultâneo); para muito mais seria preciso partir os dados.
 - **Limites de abuso** (além do contrato): registos 20/h por IP; pedidos de amizade 60/h por utilizador;
-  relatórios de partidas 300/h por utilizador; máximo 200 amigos e 50 pedidos pendentes enviados; até 5 sockets do
+  relatórios de partidas 300/h por utilizador; gravações (`PUT /api/save`) 120/h e pontuações diárias 60/h por
+  utilizador; gravações até 64 Ki caracteres de JSON por chave; pontuações diárias com mais de ~90 dias podem ser
+  apagadas; máximo 200 amigos e 50 pedidos pendentes enviados; até 5 sockets do
   hub por utilizador (o mais antigo é fechado); até 5 convites pendentes por remetente; mensagens do hub até 4 KB
   e 10/s por socket; relatórios online aceites até 24 h depois de a partida ser criada e até ao jogo nº 50.
 - **Presença**: um jogador fica offline quando o último socket do hub fecha. Se um telemóvel desaparecer sem

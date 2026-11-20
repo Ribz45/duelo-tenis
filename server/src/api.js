@@ -19,15 +19,32 @@ import {
   readJson,
   requireSecret,
   safeEqual,
+  sanitizeText,
   sha256Hex,
+  truncateChars,
 } from './util.js';
 
 const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
 const MAX_FRIENDS = 200;
 const MAX_OUTGOING_REQUESTS = 50;
 const MAX_GAMES_PER_MATCH = 50;
 const REPORT_WINDOW_MS = 24 * HOUR; // relatórios aceites até 24 h depois de a partida ser criada
 const CLIENT_ID_RE = /^[A-Za-z0-9_-]{16,64}$/;
+
+const SAVE_KEYS = ['career', 'achievements'];
+const SAVE_MAX_CHARS = 65536; // JSON.stringify(data).length
+// O corpo pode ter até 4 bytes UTF-8 por caractere dos dados, mais o resumo e a margem.
+const SAVE_BODY_MAX_BYTES = 4 * SAVE_MAX_CHARS + 16 * 1024;
+const SAVE_PUT_LIMIT = 120; // por hora e utilizador
+const SUMMARY_NAME_MAX = 24;
+
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const DAILY_MAX_SCORE = 100000;
+const DAILY_DETAIL_MAX = 120;
+const DAILY_BOARD_MAX = 50;
+const DAILY_POST_LIMIT = 60; // por hora e utilizador
+const DAILY_KEEP_DAYS = 90; // dias mais antigos são apagados de vez em quando
 
 const notFound = (what = 'Not found') => new HttpError(404, 'not_found', what);
 
@@ -75,6 +92,8 @@ async function getMe(hub, req, me) {
   return json({
     user: db.publicUser(me),
     linkKey: await linkKeyFor(requireSecret(hub.env), me.tag),
+    elo: me.elo,
+    career: db.careerSummary(sql, me.id),
     record: db.record(sql, me.id),
     friends: hub.friendsOf(me.id),
     requests: { incoming: db.incomingRequests(sql, me.id), outgoing: db.outgoingRequests(sql, me.id) },
@@ -160,6 +179,8 @@ async function getUser(hub, req, me, id) {
   if (!user) throw notFound('No such player');
   return json({
     user: db.publicUser(user),
+    elo: user.elo,
+    career: db.careerSummary(sql, id),
     record: db.record(sql, id),
     h2h: db.h2h(sql, me.id, id),
     recent: db.listMatches(sql, me.id, id, 10),
@@ -213,11 +234,12 @@ function reportOnline(hub, me, body, now) {
     const firstReport = reports[0];
     if (!firstReport) {
       // Primeiro relatório: guarda o resultado para os dois jogadores (score[0] = p1/anfitrião).
+      let stored = false;
       for (const [uid, opp, mine, theirs] of [
         [match.p1, match.p2, score[0], score[1]],
         [match.p2, match.p1, score[1], score[0]],
       ]) {
-        db.insertResult(sql, {
+        const inserted = db.insertResult(sql, {
           userId: uid,
           mode: 'online',
           matchId: match.id,
@@ -230,6 +252,12 @@ function reportOnline(hub, me, body, now) {
           at: now,
           stats: db.cleanStats(stats[uid]),
         });
+        stored = stored || inserted;
+      }
+      // Elo da escada: só aqui, quando o resultado fica guardado pela primeira vez (nunca na confirmação
+      // nem na disputa). Partidas com o mesmo jogador dos dois lados são ignoradas.
+      if (stored && match.p1 !== match.p2) {
+        db.applyElo(sql, body.winner, body.winner === match.p1 ? match.p2 : match.p1);
       }
       return 'reported';
     }
@@ -273,11 +301,147 @@ async function postMatch(hub, req, me) {
   return json({ ok: true, status });
 }
 
+// ---------- Gravações (carreira, conquistas) ----------
+
+function saveKey(raw) {
+  if (!SAVE_KEYS.includes(raw)) throw new HttpError(400, 'bad_key', `key must be one of: ${SAVE_KEYS.join(', ')}`);
+  return raw;
+}
+
+/** Resumo da carreira: inteiros limitados, nome ≤ 24 caracteres limpo como os nomes (ausente/vazio → sem nome). */
+function cleanSummary(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new HttpError(400, 'bad_summary', 'summary must be an object');
+  }
+  const s = {
+    rank: clampInt(raw.rank, 1, 999, 999),
+    bestRank: clampInt(raw.bestRank, 1, 999, 999),
+    titles: clampInt(raw.titles, 0, 999, 0),
+    majors: clampInt(raw.majors, 0, 999, 0),
+    level: clampInt(raw.level, 1, 99, 1),
+    season: clampInt(raw.season, 1, 99, 1),
+  };
+  const name = typeof raw.name === 'string' ? truncateChars(sanitizeText(raw.name.slice(0, 400)), SUMMARY_NAME_MAX) : '';
+  if (name) s.name = name;
+  return s;
+}
+
+async function readSave(hub, req, me, rawKey) {
+  const key = saveKey(rawKey);
+  const row = db.getSave(hub.sql, me.id, key);
+  if (!row) throw notFound('No save for that key');
+  return json({ key, rev: row.rev, data: JSON.parse(row.data), at: row.at });
+}
+
+async function writeSave(hub, req, me, rawKey) {
+  const key = saveKey(rawKey);
+  const sql = hub.sql;
+  const now = Date.now();
+  limitOrThrow(hub, 'sv:' + me.id, SAVE_PUT_LIMIT, now);
+  const body = await readJson(req, SAVE_BODY_MAX_BYTES);
+
+  if (body.data === undefined) throw new HttpError(400, 'bad_data', 'data is required (any JSON value)');
+  const data = JSON.stringify(body.data);
+  if (data.length > SAVE_MAX_CHARS) {
+    throw new HttpError(413, 'too_large', `data must be at most ${SAVE_MAX_CHARS} characters of JSON`);
+  }
+  const force = body.force === true;
+  if (!force && !(Number.isInteger(body.base) && body.base >= 0)) {
+    throw new HttpError(400, 'bad_base', 'base must be the last rev seen (integer ≥ 0; 0 if none)');
+  }
+  // Só a carreira tem resumo. undefined = manter o anterior; null = apagar.
+  let summary;
+  if (key === 'career' && body.summary !== undefined) summary = body.summary === null ? null : cleanSummary(body.summary);
+
+  return hub.ctx.storage.transactionSync(() => {
+    const cur = db.saveMeta(sql, me.id, key);
+    const stored = cur ? cur.rev : 0;
+    if (!force && stored !== body.base) {
+      return json(
+        { error: 'conflict', message: 'The save changed on another device', rev: stored, at: cur ? cur.at : null },
+        409,
+      );
+    }
+    const rev = stored + 1;
+    db.putSave(sql, me.id, key, rev, data, now);
+    if (summary === null) db.deleteCareer(sql, me.id);
+    else if (summary) db.setCareer(sql, me.id, summary, now);
+    return json({ ok: true, rev, at: now });
+  });
+}
+
+// ---------- Desafio diário ----------
+
+const utcDay = (ms) => new Date(ms).toISOString().slice(0, 10);
+
+/** 'YYYY-MM-DD' de uma data real, ou null. */
+function validDay(raw) {
+  if (typeof raw !== 'string' || !DAY_RE.test(raw)) return null;
+  const t = Date.parse(raw + 'T00:00:00Z');
+  return Number.isFinite(t) && utcDay(t) === raw ? raw : null;
+}
+
+async function postDaily(hub, req, me) {
+  const body = await readJson(req);
+  const sql = hub.sql;
+  const now = Date.now();
+  limitOrThrow(hub, 'dy:' + me.id, DAILY_POST_LIMIT, now);
+
+  const day = validDay(body.day);
+  if (!day || (day !== utcDay(now) && day !== utcDay(now - DAY))) {
+    throw new HttpError(400, 'bad_day', "day must be today's or yesterday's UTC date (YYYY-MM-DD)");
+  }
+  const score = body.score;
+  if (!Number.isInteger(score) || score < 0 || score > DAILY_MAX_SCORE) {
+    throw new HttpError(400, 'bad_score', `score must be an integer 0–${DAILY_MAX_SCORE}`);
+  }
+  let detail = null;
+  if (body.detail !== undefined && body.detail !== null) {
+    if (typeof body.detail !== 'string') throw new HttpError(400, 'bad_detail', 'detail must be a string');
+    detail = sanitizeText(body.detail);
+    if ([...detail].length > DAILY_DETAIL_MAX) {
+      throw new HttpError(400, 'bad_detail', `detail must be at most ${DAILY_DETAIL_MAX} characters`);
+    }
+    if (!detail) detail = null;
+  }
+
+  const result = hub.ctx.storage.transactionSync(() => {
+    const cur = db.dailyScore(sql, day, me.id);
+    // Fica a melhor pontuação; num empate mantém-se a primeira (desempate do quadro: quem chegou primeiro).
+    if (cur && score <= cur.score) return { best: cur.score, improved: false };
+    db.setDailyScore(sql, day, me.id, score, detail, now);
+    return { best: score, improved: true };
+  });
+  if (Math.random() < 0.02) db.pruneDaily(sql, utcDay(now - DAILY_KEEP_DAYS * DAY));
+  return json({ ok: true, ...result });
+}
+
+async function getDaily(hub, req, me, _id, url) {
+  const raw = url.searchParams.get('day');
+  const day = raw === null ? utcDay(Date.now()) : validDay(raw);
+  if (!day) throw new HttpError(400, 'bad_day', 'day must be a date YYYY-MM-DD');
+  const mine = db.dailyScore(hub.sql, day, me.id);
+  return json({
+    day,
+    me: mine ? { score: mine.score, detail: mine.detail } : null,
+    board: db.dailyBoard(hub.sql, day, me.id, DAILY_BOARD_MAX),
+  });
+}
+
+// ---------- Escada de amigos (Elo) ----------
+
+async function getLadder(hub, req, me) {
+  return json({ players: db.ladder(hub.sql, me.id) });
+}
+
 async function getIce(hub) {
   return json({ iceServers: await iceServers(hub.env) });
 }
 
 // ---------- Router ----------
+
+// [método, caminho, handler, precisa de token, validação do parâmetro (por omissão: id de utilizador)]
+const anyParam = () => true; // o handler valida (ex.: chave da gravação → 400 bad_key)
 
 const ROUTES = [
   ['POST', /^\/api\/register$/, register, false],
@@ -290,11 +454,16 @@ const ROUTES = [
   ['POST', /^\/api\/matches$/, postMatch, true],
   ['GET', /^\/api\/matches$/, getMatches, true],
   ['GET', /^\/api\/ice$/, getIce, true],
+  ['GET', /^\/api\/save\/([^/]+)$/, readSave, true, anyParam],
+  ['PUT', /^\/api\/save\/([^/]+)$/, writeSave, true, anyParam],
+  ['POST', /^\/api\/daily$/, postDaily, true],
+  ['GET', /^\/api\/daily$/, getDaily, true],
+  ['GET', /^\/api\/ladder$/, getLadder, true],
 ];
 
 export async function handleApi(hub, request, url) {
   let pathMatched = false;
-  for (const [method, re, handler, auth] of ROUTES) {
+  for (const [method, re, handler, auth, checkParam = isId] of ROUTES) {
     const m = re.exec(url.pathname);
     if (!m) continue;
     pathMatched = true;
@@ -308,7 +477,7 @@ export async function handleApi(hub, request, url) {
       if (!me) throw new HttpError(401, 'unauthorized', 'Missing or invalid token');
     }
     const param = m[1];
-    if (param !== undefined && !isId(param)) throw notFound();
+    if (param !== undefined && !checkParam(param)) throw notFound();
     return handler(hub, request, me, param, url);
   }
   if (pathMatched) throw new HttpError(405, 'method_not_allowed', 'Method not allowed');

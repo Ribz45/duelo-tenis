@@ -89,7 +89,7 @@ export class Hub extends DurableObject {
     }
   }
 
-  /** Objeto "friend" visto por `viewerId`: { ...user, online, status, lastSeen, h2h }. */
+  /** Objeto "friend" visto por `viewerId`: { ...user, online, status, lastSeen, h2h, elo, career }. */
   friendView(viewerId, row, h2h) {
     const p = this.presence(row.id);
     return {
@@ -98,6 +98,9 @@ export class Hub extends DurableObject {
       status: p.status,
       lastSeen: p.online ? Date.now() : row.last_seen,
       h2h: h2h || db.h2h(this.sql, viewerId, row.id),
+      elo: row.elo,
+      // db.friendRows já traz o resumo; as outras linhas de utilizador não.
+      career: row.career !== undefined ? row.career : db.careerSummary(this.sql, row.id),
     };
   }
 

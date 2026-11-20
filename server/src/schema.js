@@ -1,4 +1,6 @@
 // Esquema SQLite do Hub (ctx.storage.sql). Migrações numeradas; a versão aplicada fica em `meta`.
+// Correm sozinhas no arranque do Hub (dentro de uma transação). Nunca editar uma migração já publicada:
+// acrescentar uma nova no fim do array.
 
 // Colunas de estatísticas: chave do jogo → coluna SQL, limite máximo e agregação.
 export const STATS = [
@@ -110,6 +112,48 @@ const MIGRATIONS = [
     count INTEGER NOT NULL
   ) WITHOUT ROWID;
   CREATE INDEX IF NOT EXISTS rate_limits_win ON rate_limits (win);
+  `,
+
+  // v2 — gravações por utilizador (carreira, conquistas), resumo da carreira visível aos amigos,
+  // desafio diário e Elo da escada de amigos. Os resultados online já guardados não contam para o Elo.
+  `
+  -- Uma gravação por utilizador e chave ('career' | 'achievements'); data = JSON (≤ 64 Ki caracteres).
+  CREATE TABLE IF NOT EXISTS saves (
+    user_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    rev INTEGER NOT NULL,
+    data TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, key)
+  ) WITHOUT ROWID;
+
+  -- Resumo da carreira (vem com a gravação 'career'), mostrado aos amigos.
+  CREATE TABLE IF NOT EXISTS careers (
+    user_id TEXT PRIMARY KEY,
+    rank INTEGER NOT NULL,
+    best_rank INTEGER NOT NULL,
+    titles INTEGER NOT NULL,
+    majors INTEGER NOT NULL,
+    level INTEGER NOT NULL,
+    season INTEGER NOT NULL,
+    name TEXT,
+    at INTEGER NOT NULL
+  ) WITHOUT ROWID;
+
+  -- Melhor pontuação de cada utilizador em cada dia (UTC, 'YYYY-MM-DD'); at = quando foi feita.
+  CREATE TABLE IF NOT EXISTS daily_scores (
+    day TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    score INTEGER NOT NULL,
+    detail TEXT,
+    at INTEGER NOT NULL,
+    PRIMARY KEY (day, user_id)
+  ) WITHOUT ROWID;
+
+  -- Elo (começa em 1000) e vitórias/derrotas online que contaram para ele.
+  ALTER TABLE users ADD COLUMN elo INTEGER NOT NULL DEFAULT 1000;
+  ALTER TABLE users ADD COLUMN elo_w INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE users ADD COLUMN elo_l INTEGER NOT NULL DEFAULT 0;
   `,
 ];
 
